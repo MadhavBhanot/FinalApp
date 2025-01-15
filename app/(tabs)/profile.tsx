@@ -12,7 +12,9 @@ export default function Profile() {
   const { user, isLoaded } = useUser();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isInterestsModalVisible, setIsInterestsModalVisible] = useState(false);
-  const [selectedInterests, setSelectedInterests] = useState(['Tech', 'Productivity']);
+  const [selectedInterests, setSelectedInterests] = useState<string[]>(
+    (user?.unsafeMetadata?.interests as string[]) || []
+  );
   const [isEditBioModalVisible, setIsEditBioModalVisible] = useState(false);
   const [newBio, setNewBio] = useState('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -104,6 +106,30 @@ export default function Profile() {
     } catch (error) {
       console.error('Image picker error:', error);
       Alert.alert('Error', 'Failed to select image');
+    }
+  };
+
+  const handleInterestSelection = async (interestName: string) => {
+    let newInterests: string[];
+    if (selectedInterests.includes(interestName)) {
+      newInterests = selectedInterests.filter(i => i !== interestName);
+    } else {
+      newInterests = [...selectedInterests, interestName];
+    }
+    
+    setSelectedInterests(newInterests);
+    
+    try {
+      await user?.update({
+        unsafeMetadata: {
+          ...user.unsafeMetadata,
+          interests: newInterests,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to update interests:', error);
+      // Revert on failure
+      setSelectedInterests(selectedInterests);
     }
   };
 
@@ -273,9 +299,9 @@ export default function Profile() {
                   ]}
                   onPress={() => {
                     if (selectedInterests.includes(interest.name)) {
-                      setSelectedInterests(selectedInterests.filter(i => i !== interest.name));
+                      handleInterestSelection(interest.name);
                     } else {
-                      setSelectedInterests([...selectedInterests, interest.name]);
+                      handleInterestSelection(interest.name);
                     }
                   }}
                 >
