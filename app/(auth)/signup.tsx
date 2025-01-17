@@ -55,31 +55,16 @@ export default function SignUp() {
   const onSelectAuth = async (strategy: 'oauth_google' | 'oauth_github') => {
     try {
       const selectedAuth = strategy === 'oauth_google' ? googleAuth : githubAuth;
-      
-      if (!selectedAuth) {
-        console.error("Auth provider not initialized");
-        return;
-      }
+      if (!selectedAuth) return;
 
-      setLoading(true);
+      const { createdSessionId, setActive: oauthSetActive } = await selectedAuth();
       
-      const { createdSessionId, signIn, signUp, setActive } = await selectedAuth();
-
-      if (createdSessionId) {
-        setActive!({ session: createdSessionId });
-        router.replace('/(tabs)/');
-      } else {
-        console.error("OAuth flow completed but no session was created");
-        Alert.alert('Error', 'Failed to complete authentication. Please try again.');
+      if (createdSessionId && oauthSetActive) {
+        await oauthSetActive({ session: createdSessionId });
+        router.replace('/(tabs)');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("OAuth error:", err);
-      Alert.alert(
-        'Authentication Error',
-        err.message || 'Failed to authenticate with provider'
-      );
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -299,7 +284,7 @@ export default function SignUp() {
             style={[
               styles.socialButton,
               loading && styles.disabledButton,
-              Platform.OS === 'web' && styles.webSocialButton
+              { backgroundColor: Colors[theme].background }
             ]}
             onPress={() => onSelectAuth('oauth_google')}
             disabled={loading}
@@ -323,9 +308,6 @@ export default function SignUp() {
                   fill="#EA4335"
                 />
               </Svg>
-              <Text style={[styles.socialButtonText, { color: Colors[theme].text }]}>
-                Google
-              </Text>
             </View>
           </TouchableOpacity>
 
@@ -333,7 +315,7 @@ export default function SignUp() {
             style={[
               styles.socialButton,
               loading && styles.disabledButton,
-              Platform.OS === 'web' && styles.webSocialButton
+              { backgroundColor: Colors[theme].background }
             ]}
             onPress={() => onSelectAuth('oauth_github')}
             disabled={loading}
@@ -345,9 +327,6 @@ export default function SignUp() {
                   fill={Colors[theme].text}
                 />
               </Svg>
-              <Text style={[styles.socialButtonText, { color: Colors[theme].text }]}>
-                GitHub
-              </Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -551,25 +530,40 @@ const styles = StyleSheet.create({
   },
   socialButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
+    justifyContent: 'center',
+    gap: 24,
   },
   socialButton: {
-    flex: 1,
+    width: 50,
     height: 50,
-    borderRadius: 12,
+    borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    backgroundColor: '#ffffff',
+    borderColor: '#333',
+    backgroundColor: '#1E1E1E',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
     ...(Platform.OS === 'web' && {
-      boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.05)'
+      cursor: 'pointer',
+      transition: 'all 0.2s ease'
     })
   },
   socialButtonText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  socialButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   footer: {
     flexDirection: 'row',
@@ -673,17 +667,5 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' && {
       cursor: 'not-allowed'
     })
-  },
-  webSocialButton: {
-    transition: 'all 0.2s ease',
-    cursor: 'pointer',
-    '&:hover': {
-      backgroundColor: '#f5f5f5',
-    }
-  },
-  socialButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
   },
 }); 
