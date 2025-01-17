@@ -8,6 +8,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { EditProfileModal } from './EditProfile';
+import { SettingsModal } from './SettingsModal';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -17,6 +18,7 @@ export function HamburgerMenu({ isVisible, onClose }: { isVisible: boolean; onCl
   const theme = useColorScheme();
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     if (isVisible) {
@@ -63,7 +65,7 @@ export function HamburgerMenu({ isVisible, onClose }: { isVisible: boolean; onCl
       color: "#00BCD4",
       bgColor: "rgba(0, 188, 212, 0.15)",
       onPress: () => {
-        onClose();
+        setShowSettings(true);
       }
     },
     {
@@ -175,6 +177,13 @@ export function HamburgerMenu({ isVisible, onClose }: { isVisible: boolean; onCl
         isVisible={showEditProfile}
         onClose={() => {
           setShowEditProfile(false);
+          onClose();
+        }}
+      />
+      <SettingsModal 
+        isVisible={showSettings}
+        onClose={() => {
+          setShowSettings(false);
           onClose();
         }}
       />
