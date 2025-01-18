@@ -23,7 +23,6 @@ export default function TabOneScreen() {
 
   useEffect(() => {
     if (isLoaded && user) {
-      // Check if user has interests already
       const userInterests = user.unsafeMetadata.interests as string[] | undefined;
       if (!userInterests || userInterests.length === 0) {
         setShowWelcomeModal(true);
@@ -62,7 +61,6 @@ export default function TabOneScreen() {
       <Text style={styles.title}>Welcome, {displayName}!</Text>
       <Text style={styles.subtitle}>You're signed in successfully</Text>
 
-      {/* Welcome Modal */}
       <Modal
         visible={showWelcomeModal}
         transparent
@@ -126,6 +124,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#000',
+    padding: 20,
   },
   title: {
     fontSize: 24,
@@ -149,6 +148,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     maxHeight: '80%',
+    width: '100%',
   },
   modalTitle: {
     fontSize: 24,
@@ -187,13 +187,15 @@ const styles = StyleSheet.create({
   },
   continueButton: {
     backgroundColor: '#6C63FF',
-    padding: 15,
+    width: '100%',
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 20,
   },
   continueButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
   },
