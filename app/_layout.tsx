@@ -4,7 +4,8 @@ import * as SecureStore from "expo-secure-store";
 import { useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
-import { ActivityStatusProvider } from '../contexts/ActivityStatusContext';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PostsProvider } from '@/contexts/posts';
 
 const tokenCache = {
   async getToken(key: string) {
@@ -48,14 +49,15 @@ function InitialLayout() {
 
 export default function RootLayout() {
   return (
-    <ClerkProvider
-      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
-      tokenCache={tokenCache}
-    >
-      <ActivityStatusProvider>
-        <InitialLayout />
-      </ActivityStatusProvider>
-    </ClerkProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ClerkProvider
+        publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+        tokenCache={tokenCache}
+      >
+        <PostsProvider>
+          <InitialLayout />
+        </PostsProvider>
+      </ClerkProvider>
+    </GestureHandlerRootView>
   );
 }
-
