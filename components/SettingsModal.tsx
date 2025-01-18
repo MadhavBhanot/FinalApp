@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { router } from 'expo-router';
 import { PrivacySettingsModal } from './PrivacySettingsModal';
+import { useActivityStatus } from '@/contexts/ActivityStatus';
 
 interface SettingsModalProps {
   isVisible: boolean;
@@ -30,6 +31,7 @@ export function SettingsModal({ isVisible, onClose }: SettingsModalProps) {
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const { isActive, setIsActive } = useActivityStatus();
 
   const handleDeactivateAccount = async () => {
     try {

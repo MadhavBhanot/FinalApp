@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ContentVisibilityModal } from './ContentVisibilityModal';
 import { ProfileVisibilityModal } from './ProfileVisibilityModal';
 import { DirectMessageSettingsModal } from './DirectMessageSettingsModal';
-import { useActivityStatus } from '../contexts/ActivityStatusContext';
+import { useActivityStatus } from '@/contexts/ActivityStatus';
 
 interface PrivacySettingsModalProps {
   isVisible: boolean;
@@ -303,7 +303,7 @@ export function PrivacySettingsModal({ isVisible, onClose }: PrivacySettingsModa
               </View>
               <Switch
                 value={isActive}
-                onValueChange={setIsActive}
+                onValueChange={(value) => setIsActive(value)}
                 trackColor={{ false: '#767577', true: '#81b0ff' }}
                 thumbColor={isActive ? '#2196F3' : '#f4f3f4'}
               />

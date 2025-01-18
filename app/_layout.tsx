@@ -6,6 +6,7 @@ import { useRouter, useSegments } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PostsProvider } from '@/contexts/posts';
+import { ActivityStatusProvider } from '@/contexts/ActivityStatus';
 
 const tokenCache = {
   async getToken(key: string) {
@@ -54,9 +55,11 @@ export default function RootLayout() {
         publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
         tokenCache={tokenCache}
       >
-        <PostsProvider>
-          <InitialLayout />
-        </PostsProvider>
+        <ActivityStatusProvider>
+          <PostsProvider>
+            <InitialLayout />
+          </PostsProvider>
+        </ActivityStatusProvider>
       </ClerkProvider>
     </GestureHandlerRootView>
   );

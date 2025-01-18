@@ -9,7 +9,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { EditProfileModal } from './EditProfile';
 import { SettingsModal } from './SettingsModal';
-import { useActivityStatus } from '../contexts/ActivityStatusContext';
+import { useActivityStatus } from '@/contexts/ActivityStatus';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
