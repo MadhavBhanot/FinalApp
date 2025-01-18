@@ -4,6 +4,7 @@ import * as SecureStore from "expo-secure-store";
 import { useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import { ActivityStatusProvider } from '../contexts/ActivityStatusContext';
 
 const tokenCache = {
   async getToken(key: string) {
@@ -51,7 +52,9 @@ export default function RootLayout() {
       publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
       tokenCache={tokenCache}
     >
-      <InitialLayout />
+      <ActivityStatusProvider>
+        <InitialLayout />
+      </ActivityStatusProvider>
     </ClerkProvider>
   );
 }
