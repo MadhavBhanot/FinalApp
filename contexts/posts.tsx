@@ -49,4 +49,8 @@ export function usePosts() {
     throw new Error('usePosts must be used within a PostsProvider');
   }
   return context;
-} 
+// <<<<<<< branch
+// }
+// =======
+// } 
+// >>>>>>> main
