@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView, Dimensions } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,20 +6,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/clerk-expo';
 import { usePosts } from '@/contexts/posts';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 interface Tag {
   id: string;
   name: string;
-}
-
-interface Post {
-  id: string;
-  imageUri: string;
-  description: string;
-  location: string;
-  tags: string[];
-  userId: string;
-  filters?: string;
-  createdAt: string;
 }
 
 export default function AddDetails() {
@@ -61,7 +52,17 @@ export default function AddDetails() {
         createdAt: new Date().toISOString()
       });
 
+      // Navigate to profile and stay there
       router.replace('/(tabs)/profile');
+
+      // Reset create post state in the background
+      setTimeout(() => {
+        setDescription('');
+        setLocation('');
+        setCurrentTag('');
+        setTags([]);
+      }, 500);
+
     } catch (error) {
       console.error('Error creating post:', error);
       alert('Failed to create post. Please try again.');
@@ -72,46 +73,35 @@ export default function AddDetails() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={28} color="#fff" />
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>New Post</Text>
+        <Text style={styles.headerTitle}>Create Post</Text>
         <TouchableOpacity 
           style={[styles.postButton, tags.length === 0 && styles.postButtonDisabled]}
           onPress={handlePost}
           disabled={tags.length === 0}
         >
           <Text style={[styles.postButtonText, tags.length === 0 && styles.postButtonTextDisabled]}>
-            Post
+            Share
           </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
-        <View style={styles.imagePreview}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.previewSection}>
           <Image 
             source={{ uri: imageUri }}
-            style={[
-              styles.previewImage,
-              cssFilters ? { filter: cssFilters } : {}
-            ]}
-            resizeMode="contain"
+            style={[styles.previewImage, cssFilters ? { filter: cssFilters } : {}]}
+            resizeMode="cover"
           />
+          <View style={styles.imageOverlay}>
+            <Ionicons name="image" size={24} color="#fff" />
+          </View>
         </View>
 
-        <View style={styles.form}>
-          <View style={styles.inputContainer}>
-            <Ionicons name="location-outline" size={24} color="#666" />
-            <TextInput
-              style={styles.input}
-              placeholder="Add location"
-              placeholderTextColor="#666"
-              value={location}
-              onChangeText={setLocation}
-            />
-          </View>
-
+        <View style={styles.formSection}>
           <TextInput
-            style={[styles.input, styles.descriptionInput]}
+            style={styles.captionInput}
             placeholder="Write a caption..."
             placeholderTextColor="#666"
             multiline
@@ -119,32 +109,55 @@ export default function AddDetails() {
             onChangeText={setDescription}
           />
 
+          <View style={styles.inputContainer}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="location-outline" size={20} color="#6C63FF" />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Add location..."
+              placeholderTextColor="#666"
+              value={location}
+              onChangeText={setLocation}
+            />
+          </View>
+
           <View style={styles.tagsSection}>
-            <Text style={styles.tagsTitle}>Tags</Text>
-            <View style={styles.tagInput}>
+            <View style={styles.tagInputContainer}>
+              <View style={styles.iconContainer}>
+                <Ionicons name="pricetags-outline" size={20} color="#6C63FF" />
+              </View>
               <TextInput
-                style={styles.tagInputField}
+                style={styles.tagInput}
                 placeholder="Add tags..."
                 placeholderTextColor="#666"
                 value={currentTag}
                 onChangeText={setCurrentTag}
                 onSubmitEditing={handleAddTag}
               />
-              <TouchableOpacity onPress={handleAddTag}>
+              <TouchableOpacity onPress={handleAddTag} style={styles.addTagButton}>
                 <Ionicons name="add-circle" size={24} color="#6C63FF" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.tagsList}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.tagsScroll}
+              contentContainerStyle={styles.tagsScrollContent}
+            >
               {tags.map(tag => (
                 <View key={tag.id} style={styles.tag}>
-                  <Text style={styles.tagText}>{tag.name}</Text>
-                  <TouchableOpacity onPress={() => handleRemoveTag(tag.id)}>
-                    <Ionicons name="close-circle" size={18} color="#fff" />
+                  <Text style={styles.tagText}>#{tag.name}</Text>
+                  <TouchableOpacity 
+                    onPress={() => handleRemoveTag(tag.id)}
+                    style={styles.removeTagButton}
+                  >
+                    <Ionicons name="close-circle" size={16} color="#fff" />
                   </TouchableOpacity>
                 </View>
               ))}
-            </View>
+            </ScrollView>
           </View>
         </View>
       </ScrollView>
@@ -161,82 +174,112 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#222',
-    backgroundColor: '#000',
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#fff',
   },
   postButton: {
     backgroundColor: '#6C63FF',
     paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 20,
   },
   postButtonDisabled: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: 'rgba(108, 99, 255, 0.3)',
   },
   postButtonText: {
     color: '#fff',
     fontWeight: '600',
   },
   postButtonTextDisabled: {
-    color: '#666',
+    color: 'rgba(255,255,255,0.5)',
   },
   content: {
     flex: 1,
   },
-  imagePreview: {
-    width: '100%',
-    aspectRatio: 1,
+  previewSection: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH,
     backgroundColor: '#111',
-    marginBottom: 16,
-    overflow: 'hidden',
+    position: 'relative',
   },
   previewImage: {
     width: '100%',
     height: '100%',
   },
-  form: {
-    padding: 16,
-    gap: 16,
+  imageOverlay: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 8,
+    borderRadius: 20,
   },
-  input: {
+  formSection: {
+    padding: 16,
+    gap: 20,
+    backgroundColor: '#000',
+  },
+  captionInput: {
     backgroundColor: '#1A1A1A',
     borderRadius: 12,
     padding: 16,
     color: '#fff',
     fontSize: 16,
+    minHeight: 120,
+    textAlignVertical: 'top',
+    marginBottom: 4,
   },
-  tagsSection: {
-    gap: 8,
-  },
-  tagsTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  tagInput: {
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1A1A1A',
     borderRadius: 12,
-    padding: 12,
+    overflow: 'hidden',
   },
-  tagInputField: {
+  iconContainer: {
+    padding: 12,
+    backgroundColor: 'rgba(108, 99, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  input: {
     flex: 1,
     color: '#fff',
-    fontSize: 16,
-    marginRight: 8,
+    fontSize: 15,
+    paddingHorizontal: 12,
+    height: 44,
   },
-  tagsList: {
+  tagsSection: {
+    gap: 12,
+  },
+  tagInputContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    alignItems: 'center',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  tagInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+    paddingHorizontal: 12,
+    height: 44,
+  },
+  addTagButton: {
+    padding: 12,
+  },
+  tagsScroll: {
+    maxHeight: 40,
+  },
+  tagsScrollContent: {
+    paddingHorizontal: 4,
   },
   tag: {
     flexDirection: 'row',
@@ -245,23 +288,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingVertical: 6,
     paddingHorizontal: 12,
-    gap: 4,
+    marginRight: 8,
   },
   tagText: {
     color: '#fff',
-    fontSize: 14,
+    marginRight: 4,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-  },
-  descriptionInput: {
-    height: 100,
-    textAlignVertical: 'top',
-    paddingTop: 12,
+  removeTagButton: {
+    marginLeft: 4,
   },
 }); 

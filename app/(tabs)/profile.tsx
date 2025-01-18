@@ -11,8 +11,10 @@ import { BlurView } from 'expo-blur';
 import { SharedElement } from 'react-navigation-shared-element';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
-const POSTS_PER_ROW = 4;
-const POST_SIZE = WINDOW_WIDTH / POSTS_PER_ROW;
+const POSTS_PER_ROW = 3;
+const VISIBLE_POSTS = 9;
+const GRID_PADDING = 32;
+const POST_SIZE = (WINDOW_WIDTH - GRID_PADDING) / POSTS_PER_ROW;
 
 interface Post {
   id: string;
@@ -54,6 +56,7 @@ export default function Profile() {
   ];
 
   const userPosts = getUserPosts(user?.id || '');
+  const displayedPosts = userPosts.slice(0, VISIBLE_POSTS);
 
   const handleUpdateBio = async () => {
     if (!user) return;
@@ -322,7 +325,7 @@ export default function Profile() {
           <View style={styles.postsSection}>
             <Text style={styles.sectionTitle}>Posts</Text>
             <View style={styles.postsGrid}>
-              {userPosts.map(post => (
+              {displayedPosts.map((post) => (
                 <TouchableOpacity 
                   key={post.id} 
                   style={styles.postContainer}
@@ -857,18 +860,20 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -0.5,
+    padding: 16,
+    gap: 1,
+    maxHeight: POST_SIZE * 3 + 8,
   },
   postContainer: {
-    width: POST_SIZE - 1,
-    height: POST_SIZE - 1,
-    margin: 0.5,
+    width: POST_SIZE - 2,
+    height: POST_SIZE - 2,
     backgroundColor: '#1A1A1A',
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   postImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 4,
   },
   modalOverlay: {
     flex: 1,
