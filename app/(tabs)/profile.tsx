@@ -1,15 +1,32 @@
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, ScrollView, Dimensions, Modal, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, ScrollView, Dimensions, Modal, TextInput, Alert, FlatList, SafeAreaView } from 'react-native';
 import { useUser } from '@clerk/clerk-expo';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { HamburgerMenu } from '@/components/HamburgerMenu';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { PinchGestureHandler, State } from 'react-native-gesture-handler';
+import { usePosts } from '@/contexts/posts';
+import { BlurView } from 'expo-blur';
+import { SharedElement } from 'react-navigation-shared-element';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
+const POSTS_PER_ROW = 4;
+const POST_SIZE = WINDOW_WIDTH / POSTS_PER_ROW;
+
+interface Post {
+  id: string;
+  imageUri: string;
+  description: string;
+  tags: string[];
+  likes: number;
+  comments: number;
+  filters?: string;
+}
 
 export default function Profile() {
   const { user, isLoaded } = useUser();
+  const { getUserPosts } = usePosts();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isInterestsModalVisible, setIsInterestsModalVisible] = useState(false);
   const [selectedInterests, setSelectedInterests] = useState<string[]>(
@@ -18,6 +35,10 @@ export default function Profile() {
   const [isEditBioModalVisible, setIsEditBioModalVisible] = useState(false);
   const [newBio, setNewBio] = useState('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [scale, setScale] = useState(1);
+  const [isLiked, setIsLiked] = useState(false);
+  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
 
   const AVAILABLE_INTERESTS = [
     { id: '1', name: 'Tech', icon: 'laptop-outline' },
@@ -31,6 +52,8 @@ export default function Profile() {
     { id: '9', name: 'Music', icon: 'musical-notes-outline' },
     { id: '10', name: 'Art', icon: 'brush-outline' },
   ];
+
+  const userPosts = getUserPosts(user?.id || '');
 
   const handleUpdateBio = async () => {
     if (!user) return;
@@ -131,6 +154,26 @@ export default function Profile() {
       // Revert on failure
       setSelectedInterests(selectedInterests);
     }
+  };
+
+  const toggleInterest = (interest: string) => {
+    setSelectedInterests(prev => 
+      prev.includes(interest)
+        ? prev.filter(i => i !== interest)
+        : [...prev, interest]
+    );
+  };
+
+  const handleLike = (postId: string) => {
+    setLikedPosts(prev => {
+      const newLikedPosts = new Set(prev);
+      if (newLikedPosts.has(postId)) {
+        newLikedPosts.delete(postId);
+      } else {
+        newLikedPosts.add(postId);
+      }
+      return newLikedPosts;
+    });
   };
 
   if (!isLoaded) {
@@ -253,18 +296,52 @@ export default function Profile() {
               <Ionicons name="pencil" size={20} color="#6C63FF" />
             </TouchableOpacity>
           </View>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.interestsScroll}
-          >
-            {selectedInterests.map((interest, index) => (
-              <View key={index} style={styles.interestTag}>
-                <Text style={styles.interestText}>{interest}</Text>
-              </View>
+          <View style={styles.interestsGrid}>
+            {selectedInterests.map(interest => (
+              <TouchableOpacity
+                key={interest}
+                style={[
+                  styles.interestTag,
+                  selectedInterests.includes(interest) && styles.selectedInterest
+                ]}
+                onPress={() => toggleInterest(interest)}
+              >
+                <Text style={[
+                  styles.interestText,
+                  selectedInterests.includes(interest) && styles.selectedInterestText
+                ]}>
+                  {interest}
+                </Text>
+              </TouchableOpacity>
             ))}
-          </ScrollView>
+          </View>
         </View>
+
+        {/* Posts Grid Section */}
+        {userPosts.length > 0 && (
+          <View style={styles.postsSection}>
+            <Text style={styles.sectionTitle}>Posts</Text>
+            <View style={styles.postsGrid}>
+              {userPosts.map(post => (
+                <TouchableOpacity 
+                  key={post.id} 
+                  style={styles.postContainer}
+                  onPress={() => setSelectedPost(post)}
+                  activeOpacity={0.7}
+                >
+                  <Image 
+                    source={{ uri: post.imageUri }}
+                    style={[
+                      styles.postImage,
+                      post.filters ? { filter: post.filters } : {}
+                    ]}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       <HamburgerMenu 
@@ -373,6 +450,118 @@ export default function Profile() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* New Post Modal Design */}
+      <Modal
+        visible={!!selectedPost}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setSelectedPost(null)}
+        statusBarTranslucent={true}
+      >
+        {selectedPost && (
+          <View style={styles.modalContainer}>
+            <TouchableOpacity 
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={() => setSelectedPost(null)}
+            >
+              <TouchableOpacity 
+                activeOpacity={1} 
+                style={styles.modalCard}
+                onPress={e => e.stopPropagation()}
+              >
+                {/* Image Section */}
+                <View style={styles.modalImageSection}>
+                  <Image 
+                    source={{ uri: selectedPost.imageUri }}
+                    style={[
+                      styles.modalImage,
+                      selectedPost.filters ? { filter: selectedPost.filters } : {}
+                    ]}
+                    resizeMode="cover"
+                  />
+                  
+                  {/* Floating Close Button */}
+                  <TouchableOpacity 
+                    style={styles.floatingCloseButton}
+                    onPress={() => setSelectedPost(null)}
+                  >
+                    <Ionicons name="close" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Content Section */}
+                <View style={styles.modalContent}>
+                  {/* User Info */}
+                  <View style={styles.userInfo}>
+                    <Image 
+                      source={{ uri: user?.imageUrl }} 
+                      style={styles.userAvatar} 
+                    />
+                    <View style={styles.userTextInfo}>
+                      <Text style={styles.username}>{user?.username}</Text>
+                      {selectedPost.location && (
+                        <Text style={styles.location}>
+                          <Ionicons name="location-outline" size={12} color="#999" />
+                          {' '}{selectedPost.location}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Actions */}
+                  <View style={styles.actions}>
+                    <View style={styles.leftActions}>
+                      <TouchableOpacity onPress={() => handleLike(selectedPost.id)}>
+                        <Ionicons 
+                          name={likedPosts.has(selectedPost.id) ? "heart" : "heart-outline"} 
+                          size={24} 
+                          color={likedPosts.has(selectedPost.id) ? "#FF4B4B" : "#fff"} 
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity>
+                        <Ionicons name="chatbubble-outline" size={22} color="#fff" />
+                      </TouchableOpacity>
+                      <TouchableOpacity>
+                        <Ionicons name="paper-plane-outline" size={22} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity>
+                      <Ionicons name="bookmark-outline" size={22} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Description and Tags */}
+                  <ScrollView style={styles.detailsScroll}>
+                    <Text style={styles.likesCount}>{selectedPost.likes || 0} likes</Text>
+                    
+                    {selectedPost.description && (
+                      <Text style={styles.description}>
+                        <Text style={styles.username}>{user?.username}</Text>
+                        {' '}{selectedPost.description}
+                      </Text>
+                    )}
+
+                    <View style={styles.tagsWrap}>
+                      {selectedPost.tags.map((tag, index) => (
+                        <Text key={index} style={styles.tag}>#{tag}</Text>
+                      ))}
+                    </View>
+
+                    <Text style={styles.date}>
+                      {new Date(selectedPost.createdAt).toLocaleDateString('en-US', {
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </Text>
+                  </ScrollView>
+                </View>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
+        )}
       </Modal>
     </View>
   );
@@ -505,8 +694,10 @@ const styles = StyleSheet.create({
   editInterests: {
     padding: 8,
   },
-  interestsScroll: {
+  interestsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
   interestTag: {
     backgroundColor: '#6C63FF',
@@ -521,13 +712,163 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
   },
-  modalBlur: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: WINDOW_WIDTH * 0.75,
+  safeArea: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 20,
+    overflow: 'hidden',
+    maxHeight: '90%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  modalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalUserAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#6C63FF',
+  },
+  modalUsername: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalLocation: {
+    color: '#999',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageContainer: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: '#111',
+  },
+  modalImage: {
+    width: '100%',
     height: '100%',
+  },
+  postActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  leftActions: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    transform: [{ scale: 1 }],
+    ':active': {
+      transform: [{ scale: 0.95 }],
+      backgroundColor: 'rgba(255,255,255,0.15)',
+    },
+  },
+  modalDetails: {
+    padding: 16,
+    paddingTop: 8,
+  },
+  descriptionContainer: {
+    marginBottom: 8,
+  },
+  usernameText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  descriptionText: {
+    color: '#fff',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  tag: {
+    backgroundColor: '#6C63FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  tagText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  dateText: {
+    color: '#666',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  editImageOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 40,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadingContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  postsSection: {
+    padding: 8,
+  },
+  postsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -0.5,
+  },
+  postContainer: {
+    width: POST_SIZE - 1,
+    height: POST_SIZE - 1,
+    margin: 0.5,
+    backgroundColor: '#1A1A1A',
+  },
+  postImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 4,
   },
   modalOverlay: {
     flex: 1,
@@ -624,20 +965,116 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  editImageOverlay: {
+  likesCount: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginVertical: 16,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxHeight: '90%',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  modalImageSection: {
+    width: '100%',
+    aspectRatio: 1,
+    position: 'relative',
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  floatingCloseButton: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 40,
+    top: 16,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  uploadingContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'center',
+  modalContent: {
+    padding: 16,
+  },
+  userInfo: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  userAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  userTextInfo: {
+    flex: 1,
+  },
+  username: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  location: {
+    color: '#999',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  leftActions: {
+    flexDirection: 'row',
+    gap: 20,
+  },
+  detailsScroll: {
+    maxHeight: 200,
+  },
+  likesCount: {
+    color: '#fff',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  description: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  tagsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  tag: {
+    color: '#6C63FF',
+    fontSize: 14,
+  },
+  date: {
+    color: '#666',
+    fontSize: 13,
   },
 }); 

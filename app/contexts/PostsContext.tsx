@@ -1,34 +1,37 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 
-interface Post {
+export interface Post {
   id: string;
   imageUri: string;
   description: string;
-  location: string;
   tags: string[];
+  likes: number;
+  comments: number;
+  createdAt: Date;
   userId: string;
-  filters?: string;
-  createdAt: string;
 }
 
 interface PostsContextType {
   posts: Post[];
-  addPost: (post: Omit<Post, 'id'>) => void;
+  addPost: (post: Omit<Post, 'id' | 'likes' | 'comments' | 'createdAt'>) => void;
   getUserPosts: (userId: string) => Post[];
 }
 
-const PostsContext = createContext<PostsContextType | null>(null);
+const PostsContext = createContext<PostsContextType | undefined>(undefined);
 
-export function PostsProvider({ children }: { children: React.ReactNode }) {
+export function PostsProvider({ children }: { children: ReactNode }) {
   const [posts, setPosts] = useState<Post[]>([]);
 
-  const addPost = (newPost: Omit<Post, 'id'>) => {
-    setPosts(prevPosts => [
+  const addPost = (newPost: Omit<Post, 'id' | 'likes' | 'comments' | 'createdAt'>) => {
+    setPosts(currentPosts => [
       {
-        id: Date.now().toString(),
         ...newPost,
+        id: Date.now().toString(),
+        likes: 0,
+        comments: 0,
+        createdAt: new Date(),
       },
-      ...prevPosts
+      ...currentPosts,
     ]);
   };
 
@@ -45,12 +48,8 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
 
 export function usePosts() {
   const context = useContext(PostsContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error('usePosts must be used within a PostsProvider');
   }
   return context;
-// <<<<<<< branch
-// }
-// =======
-// } 
-// >>>>>>> main
+} 
