@@ -1,7 +1,10 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
 export default function TabLayout() {
+  const router = useRouter();
+
   return (
     <Tabs
       screenOptions={{
@@ -21,6 +24,22 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person" size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="create-post"
+        options={{
+          title: 'Create',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="add-circle-outline" size={24} color={color} />
+          ),
+        }}
+        listeners={{
+          tabPress: (e) => {
+            e.preventDefault(); // Prevent default navigation
+            // Force navigate to select-media screen
+            router.push('/(tabs)/create-post/select-media');
+          },
         }}
       />
     </Tabs>

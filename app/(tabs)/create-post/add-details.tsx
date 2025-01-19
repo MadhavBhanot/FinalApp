@@ -52,16 +52,16 @@ export default function AddDetails() {
         createdAt: new Date().toISOString()
       });
 
-      // Navigate to profile and stay there
+      // Navigate to profile
       router.replace('/(tabs)/profile');
 
-      // Reset create post state in the background
+      // Reset states in background
       setTimeout(() => {
         setDescription('');
         setLocation('');
         setCurrentTag('');
         setTags([]);
-      }, 500);
+      }, 300);
 
     } catch (error) {
       console.error('Error creating post:', error);

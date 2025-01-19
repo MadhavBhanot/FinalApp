@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, ScrollView, Dimensions, Modal, TextInput, Alert, FlatList, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, ScrollView, Dimensions, Modal, TextInput, Alert, FlatList, SafeAreaView, Platform } from 'react-native';
 import { useUser } from '@clerk/clerk-expo';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { HamburgerMenu } from '@/components/HamburgerMenu';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,12 +9,12 @@ import { PinchGestureHandler, State } from 'react-native-gesture-handler';
 import { usePosts } from '@/contexts/posts';
 import { BlurView } from 'expo-blur';
 import { SharedElement } from 'react-navigation-shared-element';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 const POSTS_PER_ROW = 3;
-const VISIBLE_POSTS = 9;
-const GRID_PADDING = 32;
-const POST_SIZE = (WINDOW_WIDTH - GRID_PADDING) / POSTS_PER_ROW;
+const GRID_SPACING = 2;
+const POST_SIZE = (WINDOW_WIDTH - 48) / 3;
 
 interface Post {
   id: string;
@@ -56,7 +56,7 @@ export default function Profile() {
   ];
 
   const userPosts = getUserPosts(user?.id || '');
-  const displayedPosts = userPosts.slice(0, VISIBLE_POSTS);
+  const displayedPosts = userPosts.slice(0, 9);
 
   const handleUpdateBio = async () => {
     if (!user) return;
@@ -107,9 +107,7 @@ export default function Profile() {
         try {
           const manipulatedImage = await ImageManipulator.manipulateAsync(
             result.assets[0].uri,
-            [
-              { resize: { width: 500, height: 500 } }
-            ],
+            [{ resize: { width: 500, height: 500 } }],
             { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
           );
 
@@ -190,6 +188,17 @@ export default function Profile() {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
+        <LinearGradient
+          colors={[
+            'rgba(108, 99, 255, 0.2)',
+            'rgba(255, 99, 216, 0.1)',
+            'transparent'
+          ]}
+          style={styles.headerGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+        />
+
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.menuButton}
@@ -199,16 +208,14 @@ export default function Profile() {
           </TouchableOpacity>
           
           <View style={styles.profileContent}>
-            <View style={styles.profileImageContainer}>
+            <View style={styles.profileSection}>
               <TouchableOpacity 
                 style={styles.profileImageContainer}
                 onPress={handleProfileImagePress}
                 disabled={isUploadingImage}
               >
                 {isUploadingImage ? (
-                  <View style={styles.uploadingContainer}>
-                    <ActivityIndicator color="#fff" size="small" />
-                  </View>
+                  <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <>
                     {user?.imageUrl ? (
@@ -223,8 +230,8 @@ export default function Profile() {
                         </Text>
                       </View>
                     )}
-                    <View style={styles.editImageOverlay}>
-                      <Ionicons name="camera" size={20} color="#fff" />
+                    <View style={styles.editImageButton}>
+                      <Ionicons name="camera" size={16} color="#fff" />
                     </View>
                   </>
                 )}
@@ -252,7 +259,7 @@ export default function Profile() {
         {/* Stats Section */}
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>247</Text>
+            <Text style={styles.statNumber}>{displayedPosts.length}</Text>
             <Text style={styles.statLabel}>Posts</Text>
           </View>
           <View style={styles.statDivider} />
@@ -321,30 +328,31 @@ export default function Profile() {
         </View>
 
         {/* Posts Grid Section */}
-        {userPosts.length > 0 && (
-          <View style={styles.postsSection}>
+        <View style={styles.postsSection}>
+          <View style={styles.postsSectionHeader}>
             <Text style={styles.sectionTitle}>Posts</Text>
-            <View style={styles.postsGrid}>
-              {displayedPosts.map((post) => (
-                <TouchableOpacity 
-                  key={post.id} 
-                  style={styles.postContainer}
-                  onPress={() => setSelectedPost(post)}
-                  activeOpacity={0.7}
-                >
-                  <Image 
-                    source={{ uri: post.imageUri }}
-                    style={[
-                      styles.postImage,
-                      post.filters ? { filter: post.filters } : {}
-                    ]}
-                    resizeMode="cover"
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
+            <Text style={styles.postsCount}>{displayedPosts.length} posts</Text>
           </View>
-        )}
+          <View style={styles.postsGrid}>
+            {displayedPosts.map((post) => (
+              <TouchableOpacity 
+                key={post.id} 
+                style={styles.postContainer}
+                onPress={() => setSelectedPost(post)}
+                activeOpacity={0.7}
+              >
+                <Image 
+                  source={{ uri: post.imageUri }}
+                  style={[
+                    styles.postImage,
+                    post.filters ? { filter: post.filters } : {}
+                  ]}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
       </ScrollView>
 
       <HamburgerMenu 
@@ -578,46 +586,98 @@ const styles = StyleSheet.create({
   header: {
     padding: 20,
     paddingTop: 50,
+    position: 'relative',
+    zIndex: 10,
   },
   menuButton: {
     padding: 8,
     alignSelf: 'flex-end',
+    position: 'relative',
+    zIndex: 10,
   },
   profileContent: {
     alignItems: 'center',
     marginTop: 10,
+    position: 'relative',
+    zIndex: 10,
+  },
+  profileSection: {
+    position: 'relative',
+    padding: 20,
+    marginBottom: 16,
+    zIndex: 3,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    marginHorizontal: 30,
+    marginTop: 16,
+    backgroundColor: 'rgba(108, 99, 255, 0.08)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 99, 255, 0.2)',
+    position: 'relative',
+    zIndex: 3,
   },
   profileImageContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
+    backgroundColor: '#1A1A1A',
+    alignSelf: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 3,
-    borderColor: '#6C63FF',
-    overflow: 'hidden',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    shadowColor: '#6C63FF',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 10,
     marginBottom: 20,
   },
   profileImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 60,
+  },
+  editImageButton: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    backgroundColor: '#6C63FF',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#000',
   },
   profileImagePlaceholder: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#333',
+    borderRadius: 60,
+    backgroundColor: '#2A2A2A',
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileImagePlaceholderText: {
+    fontSize: 32,
     color: '#fff',
-    fontSize: 42,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
   username: {
     color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 5,
+    fontSize: 26,
+    fontWeight: '700',
+    marginBottom: 8,
     textAlign: 'center',
+    textShadowColor: 'rgba(108, 99, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 4 },
+    textShadowRadius: 8,
   },
   bio: {
     color: '#fff',
@@ -625,32 +685,25 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     textAlign: 'center',
   },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 20,
-    backgroundColor: '#1E1E1E',
-    marginTop: 20,
-    marginHorizontal: 20,
-    borderRadius: 15,
-  },
   statItem: {
     alignItems: 'center',
+    paddingHorizontal: 12,
   },
   statNumber: {
     color: '#fff',
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    marginBottom: 2,
   },
   statLabel: {
-    color: '#888',
-    fontSize: 14,
-    marginTop: 5,
+    color: '#999',
+    fontSize: 12,
+    fontWeight: '500',
   },
   statDivider: {
     width: 1,
-    height: '60%',
-    backgroundColor: '#333',
+    height: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     alignSelf: 'center',
   },
   activitySection: {
@@ -833,11 +886,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
   },
-  dateText: {
-    color: '#666',
-    fontSize: 13,
-    marginTop: 8,
-  },
   editImageOverlay: {
     position: 'absolute',
     bottom: 0,
@@ -855,20 +903,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   postsSection: {
-    padding: 8,
+    marginTop: 16,
+    paddingHorizontal: 16,
+  },
+  postsSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  postsCount: {
+    fontSize: 14,
+    color: '#666',
   },
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 16,
-    gap: 1,
-    maxHeight: POST_SIZE * 3 + 8,
+    gap: GRID_SPACING,
   },
   postContainer: {
-    width: POST_SIZE - 2,
-    height: POST_SIZE - 2,
+    width: POST_SIZE,
+    height: POST_SIZE,
     backgroundColor: '#1A1A1A',
-    borderRadius: 4,
+    borderRadius: 8,
     overflow: 'hidden',
   },
   postImage: {
@@ -1020,6 +1077,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     padding: 16,
+   
   },
   userInfo: {
     flexDirection: 'row',
@@ -1081,5 +1139,13 @@ const styles = StyleSheet.create({
   date: {
     color: '#666',
     fontSize: 13,
+  },
+  headerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 300,
+    zIndex: 1,
   },
 }); 

@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Image } from 'react-native';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
@@ -8,6 +8,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SelectMedia() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedImage(null);
+    const cleanupStoredImages = async () => {
+      try {
+        const dirInfo = await FileSystem.getInfoAsync(`${FileSystem.documentDirectory}images`);
+        if (dirInfo.exists) {
+          await FileSystem.deleteAsync(`${FileSystem.documentDirectory}images`);
+        }
+      } catch (error) {
+        console.error('Error cleaning up images:', error);
+      }
+    };
+    cleanupStoredImages();
+  }, []);
 
   const saveImage = async (uri: string) => {
     try {
