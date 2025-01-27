@@ -1,10 +1,13 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView, Dimensions } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView, Dimensions, Platform, Alert } from 'react-native';
+import { useLocalSearchParams, router, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/clerk-expo';
+import { auth, posts } from "@/lib/api";
+
 import { usePosts } from '@/contexts/posts';
+import * as FileSystem from 'expo-file-system';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -18,11 +21,13 @@ export default function AddDetails() {
   const { user } = useUser();
   const params = useLocalSearchParams();
   const imageUri = decodeURIComponent(params.imageUri as string);
-  const cssFilters = params.cssFilters as string;
-  const [description, setDescription] = useState('');
+  const cssFilters = params.cssFilters as string | undefined;
+  const [description, setDescription] = useState<string>('');
   const [location, setLocation] = useState('');
   const [currentTag, setCurrentTag] = useState('');
   const [tags, setTags] = useState<Tag[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
 
   const handleAddTag = () => {
     if (currentTag.trim() && !tags.find(t => t.name === currentTag.trim())) {
@@ -35,37 +40,28 @@ export default function AddDetails() {
     setTags(tags.filter(tag => tag.id !== tagId));
   };
 
-  const handlePost = () => {
-    if (tags.length === 0) {
-      alert('Please add at least one tag');
-      return;
-    }
-
+  const handleShare = async () => {
     try {
-      addPost({
+      setIsLoading(true);
+      const response = await posts.create({
         imageUri,
-        description,
-        location,
+        caption: description.trim(),
         tags: tags.map(t => t.name),
-        userId: user?.id || '',
         filters: cssFilters,
-        createdAt: new Date().toISOString()
+        location
       });
 
-      // Navigate to profile
-      router.replace('/(tabs)/profile');
-
-      // Reset states in background
-      setTimeout(() => {
-        setDescription('');
-        setLocation('');
-        setCurrentTag('');
-        setTags([]);
-      }, 300);
-
+      if (response.success) {
+        console.log('Post created successfully');
+        // Navigate to profile tab and refresh
+        router.push('/(tabs)/profile');
+        // You might want to trigger a refresh of the profile posts here
+      }
     } catch (error) {
-      console.error('Error creating post:', error);
-      alert('Failed to create post. Please try again.');
+      console.error('Error sharing post:', error);
+      Alert.alert('Error', 'Failed to share post. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -77,12 +73,18 @@ export default function AddDetails() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Post</Text>
         <TouchableOpacity 
-          style={[styles.postButton, tags.length === 0 && styles.postButtonDisabled]}
-          onPress={handlePost}
-          disabled={tags.length === 0}
+          style={[
+            styles.postButton, 
+            (tags.length === 0 || isLoading) && styles.postButtonDisabled
+          ]}
+          onPress={handleShare}
+          disabled={tags.length === 0 || isLoading}
         >
-          <Text style={[styles.postButtonText, tags.length === 0 && styles.postButtonTextDisabled]}>
-            Share
+          <Text style={[
+            styles.postButtonText, 
+            (tags.length === 0 || isLoading) && styles.postButtonTextDisabled
+          ]}>
+            {isLoading ? 'Posting...' : 'Share'}
           </Text>
         </TouchableOpacity>
       </View>

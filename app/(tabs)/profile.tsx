@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, ScrollView, Dimensions, Modal, TextInput, Alert, FlatList, SafeAreaView, Platform } from 'react-native';
+import React, { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, ScrollView, Dimensions, Modal, TextInput, Alert, FlatList, SafeAreaView, Platform, RefreshControl } from 'react-native';
 import { useUser } from '@clerk/clerk-expo';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { HamburgerMenu } from '@/components/HamburgerMenu';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,11 +10,12 @@ import { usePosts } from '@/contexts/posts';
 import { BlurView } from 'expo-blur';
 import { SharedElement } from 'react-navigation-shared-element';
 import { LinearGradient } from 'expo-linear-gradient';
+import { auth, posts as postsApi } from '@/lib/api';
+import PostModal from '@/components/PostModal';
+import { useRouter, usePathname } from 'expo-router';
 
-const WINDOW_WIDTH = Dimensions.get('window').width;
-const POSTS_PER_ROW = 3;
-const GRID_SPACING = 2;
-const POST_SIZE = (WINDOW_WIDTH - 48) / 3;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const POST_WIDTH = SCREEN_WIDTH / 3;
 
 interface Post {
   id: string;
@@ -24,7 +25,21 @@ interface Post {
   likes: number;
   comments: number;
   filters?: string;
+  isLiked?: boolean;
+  createdAt: string;
+  location: string;
+  author: string;
 }
+
+const formatImageUri = (uri: string) => {
+  if (!uri) return '';
+  // If it's already a complete data URI, return as is
+  if (uri.startsWith('data:image')) {
+    return uri;
+  }
+  // Otherwise, construct the complete data URI
+  return `data:image/jpeg;base64,${uri}`;
+};
 
 export default function Profile() {
   const { user, isLoaded } = useUser();
@@ -41,6 +56,13 @@ export default function Profile() {
   const [scale, setScale] = useState(1);
   const [isLiked, setIsLiked] = useState(false);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [userObjectId, setUserObjectId] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
 
   const AVAILABLE_INTERESTS = [
     { id: '1', name: 'Tech', icon: 'laptop-outline' },
@@ -57,6 +79,74 @@ export default function Profile() {
 
   const userPosts = getUserPosts(user?.id || '');
   const displayedPosts = userPosts.slice(0, 9);
+
+  // First get the user's MongoDB ObjectId
+  const fetchUserObjectId = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const response = await auth.getCurrentUser();
+      console.log('Current User Response:', response);
+      if (response.userId) {
+        setUserObjectId(response.userId);
+        console.log('Set user ObjectId:', response.userId);
+      }
+    } catch (error) {
+      console.error('Error fetching user ObjectId:', error);
+    }
+  }, [user?.id]);
+
+  // Then fetch posts using the ObjectId
+  const fetchPosts = useCallback(async () => {
+    if (!user?.id || isLoading) return; // Prevent multiple simultaneous loads
+    
+    try {
+      setIsLoading(true);
+      console.log('Fetching all posts');
+      
+      const response = await postsApi.getAllPosts();
+      console.log('Posts Response:', response);
+      
+      if (response.success) {
+        const formattedPosts = response.data.map(post => ({
+          id: post._id,
+          imageUri: post.imageUri,
+          description: post.caption,
+          likes: post.likesCount || 0,
+          isLiked: post.isLiked || false,
+          filters: post.filters,
+          tags: post.tags || [],
+          location: post.location,
+          createdAt: post.createdAt,
+          author: post.author
+        }));
+        setPosts(formattedPosts);
+      }
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id]);
+
+  // Get user's ObjectId when component mounts
+  useEffect(() => {
+    if (user?.id) {
+      fetchUserObjectId();
+    }
+  }, [user?.id, fetchUserObjectId]);
+
+  // Fetch posts when we have the ObjectId
+  useEffect(() => {
+    if (userObjectId) {
+      fetchPosts();
+    }
+  }, [userObjectId, fetchPosts]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchPosts();
+    setRefreshing(false);
+  }, [fetchPosts]);
 
   const handleUpdateBio = async () => {
     if (!user) return;
@@ -165,16 +255,49 @@ export default function Profile() {
     );
   };
 
-  const handleLike = (postId: string) => {
-    setLikedPosts(prev => {
-      const newLikedPosts = new Set(prev);
-      if (newLikedPosts.has(postId)) {
-        newLikedPosts.delete(postId);
-      } else {
-        newLikedPosts.add(postId);
+  const handleLike = async (postId: string) => {
+    if (isLiking) return;
+    
+    try {
+      setIsLiking(true);
+      const response = await posts.like(postId);
+      
+      if (response.success) {
+        // Update local state
+        setLikedPosts(prev => {
+          const newSet = new Set(prev);
+          if (response.data.isLiked) {
+            newSet.add(postId);
+          } else {
+            newSet.delete(postId);
+          }
+          return newSet;
+        });
+
+        // Update the post's likes count in the UI
+        if (selectedPost && selectedPost.id === postId) {
+          setSelectedPost(prev => ({
+            ...prev!,
+            likes: response.data.likesCount
+          }));
+        }
       }
-      return newLikedPosts;
-    });
+    } catch (error) {
+      console.error('Error liking post:', error);
+    } finally {
+      setIsLiking(false);
+    }
+  };
+
+  const handleLikeUpdated = (postId: string, likesCount: number, isLiked: boolean) => {
+    // Update the posts array with new like data
+    setPosts(currentPosts => 
+      currentPosts.map(post => 
+        post.id === postId 
+          ? { ...post, likes: likesCount, isLiked } 
+          : post
+      )
+    );
   };
 
   if (!isLoaded) {
@@ -187,7 +310,17 @@ export default function Profile() {
 
   return (
     <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#6C63FF']}
+            tintColor="#6C63FF"
+          />
+        }
+      >
         <LinearGradient
           colors={[
             'rgba(108, 99, 255, 0.2)',
@@ -259,7 +392,7 @@ export default function Profile() {
         {/* Stats Section */}
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{displayedPosts.length}</Text>
+            <Text style={styles.statNumber}>{posts.length}</Text>
             <Text style={styles.statLabel}>Posts</Text>
           </View>
           <View style={styles.statDivider} />
@@ -331,26 +464,27 @@ export default function Profile() {
         <View style={styles.postsSection}>
           <View style={styles.postsSectionHeader}>
             <Text style={styles.sectionTitle}>Posts</Text>
-            <Text style={styles.postsCount}>{displayedPosts.length} posts</Text>
+            <Text style={styles.postsCount}>{posts.length} posts</Text>
           </View>
           <View style={styles.postsGrid}>
-            {displayedPosts.map((post) => (
-              <TouchableOpacity 
-                key={post.id} 
-                style={styles.postContainer}
-                onPress={() => setSelectedPost(post)}
-                activeOpacity={0.7}
-              >
-                <Image 
-                  source={{ uri: post.imageUri }}
-                  style={[
-                    styles.postImage,
-                    post.filters ? { filter: post.filters } : {}
-                  ]}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            ))}
+            {isLoading ? (
+              <ActivityIndicator size="large" color="#6C63FF" />
+            ) : posts.length > 0 ? (
+              posts.map((post) => (
+                <TouchableOpacity
+                  key={post.id}
+                  style={styles.postContainer}
+                  onPress={() => setSelectedPost(post)}
+                >
+                  <Image 
+                    source={{ uri: post.imageUri }}
+                    style={[styles.postImage, post.filters ? { filter: post.filters } : {}]}
+                  />
+                </TouchableOpacity>
+              ))
+            ) : (
+              <Text style={styles.noPostsText}>No posts yet</Text>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -464,116 +598,14 @@ export default function Profile() {
       </Modal>
 
       {/* New Post Modal Design */}
-      <Modal
-        visible={!!selectedPost}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setSelectedPost(null)}
-        statusBarTranslucent={true}
-      >
-        {selectedPost && (
-          <View style={styles.modalContainer}>
-            <TouchableOpacity 
-              style={styles.modalOverlay}
-              activeOpacity={1}
-              onPress={() => setSelectedPost(null)}
-            >
-              <TouchableOpacity 
-                activeOpacity={1} 
-                style={styles.modalCard}
-                onPress={e => e.stopPropagation()}
-              >
-                {/* Image Section */}
-                <View style={styles.modalImageSection}>
-                  <Image 
-                    source={{ uri: selectedPost.imageUri }}
-                    style={[
-                      styles.modalImage,
-                      selectedPost.filters ? { filter: selectedPost.filters } : {}
-                    ]}
-                    resizeMode="cover"
-                  />
-                  
-                  {/* Floating Close Button */}
-                  <TouchableOpacity 
-                    style={styles.floatingCloseButton}
-                    onPress={() => setSelectedPost(null)}
-                  >
-                    <Ionicons name="close" size={20} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Content Section */}
-                <View style={styles.modalContent}>
-                  {/* User Info */}
-                  <View style={styles.userInfo}>
-                    <Image 
-                      source={{ uri: user?.imageUrl }} 
-                      style={styles.userAvatar} 
-                    />
-                    <View style={styles.userTextInfo}>
-                      <Text style={styles.username}>{user?.username}</Text>
-                      {selectedPost.location && (
-                        <Text style={styles.location}>
-                          <Ionicons name="location-outline" size={12} color="#999" />
-                          {' '}{selectedPost.location}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Actions */}
-                  <View style={styles.actions}>
-                    <View style={styles.leftActions}>
-                      <TouchableOpacity onPress={() => handleLike(selectedPost.id)}>
-                        <Ionicons 
-                          name={likedPosts.has(selectedPost.id) ? "heart" : "heart-outline"} 
-                          size={24} 
-                          color={likedPosts.has(selectedPost.id) ? "#FF4B4B" : "#fff"} 
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity>
-                        <Ionicons name="chatbubble-outline" size={22} color="#fff" />
-                      </TouchableOpacity>
-                      <TouchableOpacity>
-                        <Ionicons name="paper-plane-outline" size={22} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                    <TouchableOpacity>
-                      <Ionicons name="bookmark-outline" size={22} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Description and Tags */}
-                  <ScrollView style={styles.detailsScroll}>
-                    <Text style={styles.likesCount}>{selectedPost.likes || 0} likes</Text>
-                    
-                    {selectedPost.description && (
-                      <Text style={styles.description}>
-                        <Text style={styles.username}>{user?.username}</Text>
-                        {' '}{selectedPost.description}
-                      </Text>
-                    )}
-
-                    <View style={styles.tagsWrap}>
-                      {selectedPost.tags.map((tag, index) => (
-                        <Text key={index} style={styles.tag}>#{tag}</Text>
-                      ))}
-                    </View>
-
-                    <Text style={styles.date}>
-                      {new Date(selectedPost.createdAt).toLocaleDateString('en-US', {
-                        month: 'long',
-                        day: 'numeric'
-                      })}
-                    </Text>
-                  </ScrollView>
-                </View>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          </View>
-        )}
-      </Modal>
+      {selectedPost && (
+        <PostModal
+          visible={!!selectedPost}
+          post={selectedPost}
+          onClose={() => setSelectedPost(null)}
+          onLikeUpdated={handleLikeUpdated}
+        />
+      )}
     </View>
   );
 }
@@ -919,18 +951,17 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: GRID_SPACING,
+    width: '100%',
   },
   postContainer: {
-    width: POST_SIZE,
-    height: POST_SIZE,
-    backgroundColor: '#1A1A1A',
-    borderRadius: 8,
-    overflow: 'hidden',
+    width: '33.33%',
+    aspectRatio: 1,
+    padding: 1,
   },
   postImage: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#1a1a1a',
   },
   modalOverlay: {
     flex: 1,
@@ -1147,5 +1178,11 @@ const styles = StyleSheet.create({
     right: 0,
     height: 300,
     zIndex: 1,
+  },
+  noPostsText: {
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 20,
+    fontSize: 16,
   },
 }); 
