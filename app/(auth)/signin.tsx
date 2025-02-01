@@ -17,11 +17,14 @@ import { useSignIn } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useOAuth } from "@clerk/clerk-expo";
+import { auth } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function SignIn() {
   const { signIn, setActive, isLoaded } = useSignIn();
+  const { signIn: authSignIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -47,55 +50,20 @@ export default function SignIn() {
   };
 
   const handleSignIn = async () => {
-    if (!isLoaded) return;
-
-    // Validate inputs
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     setLoading(true);
-    setErrorMessage(null);
-
     try {
-      const completeSignIn = await signIn.create({
-        identifier: email,
-        password,
-      });
-
-      if (completeSignIn.status === 'complete') {
-        await setActive({ session: completeSignIn.createdSessionId });
-        router.replace('/(tabs)');
-      } else {
-        console.log("Sign in status:", completeSignIn.status);
-        // Handle other status cases
-        switch (completeSignIn.status) {
-          case "needs_identifier":
-            Alert.alert('Error', 'Please enter your email.');
-            break;
-          case "needs_first_factor":
-            Alert.alert('Error', 'Please enter your password.');
-            break;
-          case "needs_second_factor":
-            Alert.alert('Error', 'Two-factor authentication is required.');
-            break;
-          default:
-            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-        }
-      }
-    } catch (err: any) {
-      console.error("Sign in error:", err);
-      // Handle specific error cases
-      if (err.errors && err.errors.length > 0) {
-        const errorMessage = err.errors[0].message;
-        Alert.alert('Error', errorMessage);
-      } else {
-        Alert.alert(
-          'Error',
-          'Unable to sign in. Please check your credentials and try again.'
-        );
-      }
+      await authSignIn(email, password);
+    } catch (error: any) {
+      console.error('Sign in error:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.message || error.message || 'Failed to sign in'
+      );
     } finally {
       setLoading(false);
     }

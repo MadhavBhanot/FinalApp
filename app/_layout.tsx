@@ -1,12 +1,10 @@
 import { Stack } from 'expo-router';
 import { ClerkProvider } from "@clerk/clerk-expo";
 import * as SecureStore from "expo-secure-store";
-import { useEffect } from 'react';
-import { useRouter, useSegments } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PostsProvider } from '@/contexts/posts';
 import { ActivityStatusProvider } from '@/contexts/ActivityStatus';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 const tokenCache = {
   async getToken(key: string) {
@@ -25,42 +23,21 @@ const tokenCache = {
   },
 };
 
-function InitialLayout() {
-  const { isLoaded, isSignedIn } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoaded) return;
-
-    const inTabsGroup = segments[0] === '(tabs)';
-    const inAuthGroup = segments[0] === '(auth)';
-
-    if (isSignedIn && inAuthGroup) {
-      // Redirect to home if user is signed in and tries to access auth screens
-      router.replace('/(tabs)');
-    } else if (!isSignedIn && inTabsGroup) {
-      // Redirect to sign in if user is not signed in and tries to access protected screens
-      router.replace('/(auth)/signin');
-    }
-  }, [isSignedIn, segments, isLoaded]);
-
-  return <Stack screenOptions={{ headerShown: false }} />;
-}
-
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <ClerkProvider
-        publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
-        tokenCache={tokenCache}
-      >
-        <ActivityStatusProvider>
-          <PostsProvider>
-            <InitialLayout />
-          </PostsProvider>
-        </ActivityStatusProvider>
-      </ClerkProvider>
-    </GestureHandlerRootView>
+    <ClerkProvider
+      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+      tokenCache={tokenCache}
+    >
+      <AuthProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <ActivityStatusProvider>
+            <PostsProvider>
+              <Stack screenOptions={{ headerShown: false }} />
+            </PostsProvider>
+          </ActivityStatusProvider>
+        </GestureHandlerRootView>
+      </AuthProvider>
+    </ClerkProvider>
   );
 }

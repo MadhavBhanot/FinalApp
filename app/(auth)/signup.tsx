@@ -18,6 +18,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useSignUp, useOAuth, useAuth } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import { auth } from '../../lib/api';
 
 // Removed unused import of SignUpResource
 WebBrowser.maybeCompleteAuthSession();
@@ -51,6 +52,7 @@ export default function SignUp() {
   const [pendingSignUpAttempt, setPendingSignUpAttempt] = useState<any>(null);
   const [showDataModal, setShowDataModal] = useState(false);
   const [username, setUsername] = useState('');
+  const [verificationAttemptId, setVerificationAttemptId] = useState('');
 
   const onSelectAuth = async (strategy: 'oauth_google' | 'oauth_github') => {
     try {
@@ -69,37 +71,36 @@ export default function SignUp() {
   };
 
   const handleSignUp = async () => {
-    if (!isLoaded || !email || !password || !fullName) {
+    if (!email || !password || !fullName) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     setLoading(true);
-    setErrorMessage(null);
-
     try {
-      // Create the user
-      const signUpAttempt = await signUp.create({
-        emailAddress: email,
+      const firstName = fullName.split(' ')[0];
+      const lastName = fullName.split(' ').slice(1).join(' ') || firstName;
+      const username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const response = await auth.signUp({
+        email,
         password,
-        firstName: fullName.split(' ')[0],
-        lastName: fullName.split(' ').slice(1).join(' '),
-        username: email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') // Try setting username initially
+        firstName,
+        lastName,
+        username,
       });
 
-      if (signUpAttempt.status === "missing_requirements") {
-        await signUpAttempt.prepareEmailAddressVerification();
-        setPendingSignUpAttempt(signUpAttempt);
+      if (response.success) {
+        setVerificationAttemptId(response.verificationAttemptId);
         setVerificationModalVisible(true);
-      } else if (signUpAttempt.status === "complete") {
-        await setActive({ session: signUpAttempt.createdSessionId });
-        router.replace('/(tabs)/');
+      } else {
+        throw new Error(response.message || 'Failed to create account');
       }
-    } catch (err: any) {
-      console.error("Sign up error:", err);
+    } catch (error: any) {
+      console.error('Sign up error:', error);
       Alert.alert(
         'Error',
-        err.message || 'Unable to create account. Please try again.'
+        error.response?.data?.message || error.message || 'Failed to create account. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -107,75 +108,31 @@ export default function SignUp() {
   };
 
   const handleVerificationSubmit = async () => {
-    if (!verificationCode || !pendingSignUpAttempt) {
+    if (!verificationCode) {
       Alert.alert('Error', 'Please enter verification code');
       return;
     }
-    
+
     setVerifyingCode(true);
     try {
-      // First verify the email
-      const verification = await pendingSignUpAttempt.attemptEmailAddressVerification({
-        code: verificationCode,
+      const response = await auth.verifyEmail({
+        email,
+        code: verificationCode
       });
 
-      console.log("Verification response:", verification);
-
-      // Handle missing username requirement
-      if (verification.status === "missing_requirements" && 
-          verification.missingFields.includes("username")) {
-        try {
-          // Generate a unique username
-          const baseUsername = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-          const timestamp = new Date().getTime().toString().slice(-4);
-          const username = `${baseUsername}${timestamp}`;
-
-          // Update the signup with username
-          await pendingSignUpAttempt.update({
-            username: username
-          });
-
-          // Now complete the signup
-          const completeSignUp = await pendingSignUpAttempt.create();
-          
-          if (completeSignUp.status === "complete") {
-            await setActive({ session: completeSignUp.createdSessionId });
-            setVerificationModalVisible(false);
-            router.replace('/(tabs)/');
-          } else {
-            throw new Error('Failed to complete signup');
-          }
-        } catch (error: any) {
-          console.error("Signup completion error:", error);
-          Alert.alert(
-            'Error',
-            'Failed to complete signup. Please try again.'
-          );
-        }
-      } else if (verification.status === "complete") {
-        await setActive({ session: verification.createdSessionId });
+      if (response.success) {
+        await auth.storeToken(response.token);
         setVerificationModalVisible(false);
         router.replace('/(tabs)/');
-      }
-    } catch (err: any) {
-      console.error("Verification error:", err);
-      
-      if (err.message?.includes('already verified')) {
-        setVerificationModalVisible(false);
-        Alert.alert(
-          'Already Verified',
-          'Your email is already verified. Please sign in.',
-          [{
-            text: 'OK',
-            onPress: () => router.replace('/(auth)/signin')
-          }]
-        );
       } else {
-        Alert.alert(
-          'Verification Failed', 
-          'Please check the code and try again.'
-        );
+        throw new Error(response.message || 'Failed to verify email');
       }
+    } catch (error: any) {
+      console.error('Verification error:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.message || 'Invalid verification code. Please try again.'
+      );
     } finally {
       setVerifyingCode(false);
     }
