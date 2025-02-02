@@ -6,44 +6,125 @@ import { HamburgerMenu } from '@/components/HamburgerMenu';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { PinchGestureHandler, State } from 'react-native-gesture-handler';
-import { usePosts } from '@/contexts/posts';
 import { BlurView } from 'expo-blur';
-import { SharedElement } from 'react-navigation-shared-element';
 import { LinearGradient } from 'expo-linear-gradient';
-import { auth, posts as postsApi } from '@/lib/api';
+import { auth } from '@/lib/api/index';
+import { 
+  getUserPosts,
+  getPostById,
+  toggleLike,
+  createPost,
+  deletePost,
+  Post
+} from '@/lib/api/posts';
+
 import PostModal from '@/components/PostModal';
 import { useRouter, usePathname } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const POST_WIDTH = SCREEN_WIDTH / 3;
+const POST_WIDTH = (SCREEN_WIDTH - 80) / 3; // 16px padding on each side, 8px gap between posts
 
-interface Post {
+interface PostModalPost {
   id: string;
   imageUri: string;
   description: string;
-  tags: string[];
+  location?: string;
+  tags?: string[];
+  userId: string;
+  username: string;
+  userImage: string;
+  filters?: string;
+  createdAt: string;
   likes: number;
   comments: number;
-  filters?: string;
-  isLiked?: boolean;
-  createdAt: string;
-  location: string;
-  author: string;
+  isLiked: boolean;
 }
 
 const formatImageUri = (uri: string) => {
   if (!uri) return '';
+  
+  // Log the incoming URI for debugging
+  console.log('🔄 Formatting image URI:', uri);
+  
+  // If it's already a complete URL (http/https), return as is
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
+    return uri;
+  }
+  
   // If it's already a complete data URI, return as is
   if (uri.startsWith('data:image')) {
     return uri;
   }
-  // Otherwise, construct the complete data URI
-  return `data:image/jpeg;base64,${uri}`;
+  
+  // If it's a base64 string without the data URI prefix, add it
+  if (uri.match(/^[A-Za-z0-9+/=]+$/)) {
+    return `data:image/jpeg;base64,${uri}`;
+  }
+  
+  // If it's a relative path, construct the full URL (adjust the base URL as needed)
+  if (uri.startsWith('/')) {
+    return `http://10.0.2.2:5001${uri}`;  // Adjust this base URL to match your API
+  }
+  
+  // For any other format, try to use as is
+  return uri;
+};
+
+const fetchSinglePost = async (postId: string): Promise<Post | null> => {
+  try {
+    console.log('🔄 Fetching post details:', postId);
+    const post = await getPostById(postId);
+    
+    if (!post) {
+      console.error('❌ No post data received');
+      return null;
+    }
+    
+    console.log('✅ Post details received:', post);
+    return post;
+  } catch (error) {
+    console.error('❌ Error fetching post:', error);
+    Alert.alert('Error', 'Failed to load post details');
+    return null;
+  }
+};
+
+const POSTS_CACHE_KEY = 'user_posts_cache';
+
+const cacheUserPosts = async (userId: string, posts: Post[]) => {
+  try {
+    const cacheData = {
+      timestamp: Date.now(),
+      posts,
+    };
+    await AsyncStorage.setItem(`${POSTS_CACHE_KEY}_${userId}`, JSON.stringify(cacheData));
+    console.log('✅ Posts cached successfully');
+  } catch (error) {
+    console.error('❌ Error caching posts:', error);
+  }
+};
+
+const getCachedPosts = async (userId: string): Promise<Post[] | null> => {
+  try {
+    const cachedData = await AsyncStorage.getItem(`${POSTS_CACHE_KEY}_${userId}`);
+    if (!cachedData) return null;
+
+    const { timestamp, posts } = JSON.parse(cachedData);
+    // Cache expires after 5 minutes
+    if (Date.now() - timestamp > 5 * 60 * 1000) {
+      return null;
+    }
+    console.log('✅ Using cached posts');
+    return posts;
+  } catch (error) {
+    console.error('❌ Error reading cached posts:', error);
+    return null;
+  }
 };
 
 export default function Profile() {
   const { user, isLoaded } = useUser();
-  const { getUserPosts } = usePosts();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isInterestsModalVisible, setIsInterestsModalVisible] = useState(false);
   const [selectedInterests, setSelectedInterests] = useState<string[]>(
@@ -77,71 +158,50 @@ export default function Profile() {
     { id: '10', name: 'Art', icon: 'brush-outline' },
   ];
 
-  const userPosts = getUserPosts(user?.id || '');
-  const displayedPosts = userPosts.slice(0, 9);
-
-  // First get the user's MongoDB ObjectId
-  const fetchUserObjectId = useCallback(async () => {
-    if (!user?.id) return;
-    try {
-      const response = await auth.getCurrentUser();
-      console.log('Current User Response:', response);
-      if (response.userId) {
-        setUserObjectId(response.userId);
-        console.log('Set user ObjectId:', response.userId);
-      }
-    } catch (error) {
-      console.error('Error fetching user ObjectId:', error);
-    }
-  }, [user?.id]);
-
-  // Then fetch posts using the ObjectId
   const fetchPosts = useCallback(async () => {
-    if (!user?.id || isLoading) return; // Prevent multiple simultaneous loads
+    if (!user?.id || isLoading) return;
     
     try {
       setIsLoading(true);
-      console.log('Fetching all posts');
       
-      const response = await postsApi.getAllPosts();
-      console.log('Posts Response:', response);
+      const sessionResponse = await auth.initializeBackendSession(user);
+      const mongoUserId = sessionResponse.data.user._id;
+      setUserObjectId(mongoUserId);
       
-      if (response.success) {
-        const formattedPosts = response.data.map(post => ({
-          id: post._id,
-          imageUri: post.imageUri,
-          description: post.caption,
-          likes: post.likesCount || 0,
-          isLiked: post.isLiked || false,
-          filters: post.filters,
-          tags: post.tags || [],
-          location: post.location,
-          createdAt: post.createdAt,
-          author: post.author
-        }));
-        setPosts(formattedPosts);
+      console.log('Fetching posts for user:', mongoUserId);
+      const response = await getUserPosts(mongoUserId);
+      console.log('Posts response:', response);
+      
+      if (response && response.posts) {
+        // Log each post's data
+        response.posts.forEach(post => {
+          console.log('Post data:', {
+            id: post._id,
+            image: post.image,
+            author: post.author
+          });
+        });
+        
+        setPosts(response.posts);
+      } else {
+        setPosts([]);
       }
     } catch (error) {
       console.error('Error fetching posts:', error);
+      setPosts([]);
     } finally {
       setIsLoading(false);
     }
   }, [user?.id]);
 
-  // Get user's ObjectId when component mounts
+  // Fetch posts only once when component mounts and user is available
   useEffect(() => {
-    if (user?.id) {
-      fetchUserObjectId();
-    }
-  }, [user?.id, fetchUserObjectId]);
-
-  // Fetch posts when we have the ObjectId
-  useEffect(() => {
-    if (userObjectId) {
+    if (user?.id && !posts.length) {
       fetchPosts();
     }
-  }, [userObjectId, fetchPosts]);
+  }, [user?.id, posts.length]);
 
+  // Only refresh posts when user explicitly requests it
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchPosts();
@@ -256,30 +316,26 @@ export default function Profile() {
   };
 
   const handleLike = async (postId: string) => {
-    if (isLiking) return;
+    if (!postId || isLiking) return;
     
     try {
       setIsLiking(true);
-      const response = await posts.like(postId);
+      const response = await toggleLike(postId);
       
       if (response.success) {
-        // Update local state
-        setLikedPosts(prev => {
-          const newSet = new Set(prev);
-          if (response.data.isLiked) {
-            newSet.add(postId);
-          } else {
-            newSet.delete(postId);
-          }
-          return newSet;
-        });
+        setPosts(prevPosts => 
+          prevPosts.map(post => 
+            post._id === postId 
+              ? { ...post, isLiked: response.isLiked }
+              : post
+          )
+        );
 
-        // Update the post's likes count in the UI
-        if (selectedPost && selectedPost.id === postId) {
-          setSelectedPost(prev => ({
-            ...prev!,
-            likes: response.data.likesCount
-          }));
+        if (selectedPost?._id === postId) {
+          setSelectedPost(prev => prev ? {
+            ...prev,
+            isLiked: response.isLiked
+          } : null);
         }
       }
     } catch (error) {
@@ -289,14 +345,110 @@ export default function Profile() {
     }
   };
 
-  const handleLikeUpdated = (postId: string, likesCount: number, isLiked: boolean) => {
-    // Update the posts array with new like data
-    setPosts(currentPosts => 
-      currentPosts.map(post => 
-        post.id === postId 
-          ? { ...post, likes: likesCount, isLiked } 
-          : post
-      )
+  const handleCreatePost = async (imageUri: string, caption: string, filters?: string) => {
+    if (!user) return;
+    
+    try {
+      const formData = new FormData();
+      formData.append('image', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: 'post.jpg',
+      } as any);
+      formData.append('caption', caption);
+      if (filters) formData.append('filters', filters);
+      
+      console.log('🔄 Creating new post...');
+      const newPost = await createPost(formData);
+      console.log('✅ Post created:', newPost);
+      
+      // Update posts list with the new post
+      setPosts(prevPosts => [newPost, ...prevPosts]);
+      
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', 'Failed to create post. Please try again.');
+    }
+  };
+
+  const renderPosts = () => {
+    if (isLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6C63FF" />
+        </View>
+      );
+    }
+
+    if (!posts || posts.length === 0) {
+      return (
+        <View style={styles.noPostsContainer}>
+          <Text style={styles.noPostsText}>No posts yet</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.postsGrid}>
+        {posts.map((post) => {
+          // Add debug logging
+          console.log('Rendering post:', {
+            id: post._id,
+            hasImage: Boolean(post.image),
+            imageUrl: post.image
+          });
+
+          if (!post?._id) return null;
+
+          return (
+            <TouchableOpacity
+              key={post._id}
+              style={styles.postContainer}
+              onPress={() => {
+                console.log('Post clicked:', post);
+                // Set the selected post directly without transformation
+                setSelectedPost(post);
+              }}
+            >
+              <Image
+                source={{ 
+                  uri: post.image || 'https://via.placeholder.com/300'
+                }}
+                style={styles.postImage}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const renderPostModal = () => {
+    if (!selectedPost) return null;
+
+    console.log('Rendering modal for post:', {
+      id: selectedPost._id,
+      image: selectedPost.image,
+      author: selectedPost.author
+    });
+
+    return (
+      <PostModal
+        visible={Boolean(selectedPost)}
+        post={selectedPost}
+        onClose={() => {
+          console.log('Closing modal');
+          setSelectedPost(null);
+        }}
+        onLike={() => handleLike(selectedPost._id)}
+        onComment={() => {}}
+        onShare={() => {}}
+        onPostDeleted={() => {
+          setPosts(prevPosts => prevPosts.filter(p => p._id !== selectedPost._id));
+          setSelectedPost(null);
+        }}
+      />
     );
   };
 
@@ -466,26 +618,7 @@ export default function Profile() {
             <Text style={styles.sectionTitle}>Posts</Text>
             <Text style={styles.postsCount}>{posts.length} posts</Text>
           </View>
-          <View style={styles.postsGrid}>
-            {isLoading ? (
-              <ActivityIndicator size="large" color="#6C63FF" />
-            ) : posts.length > 0 ? (
-              posts.map((post) => (
-                <TouchableOpacity
-                  key={post.id}
-                  style={styles.postContainer}
-                  onPress={() => setSelectedPost(post)}
-                >
-                  <Image 
-                    source={{ uri: post.imageUri }}
-                    style={[styles.postImage, post.filters ? { filter: post.filters } : {}]}
-                  />
-                </TouchableOpacity>
-              ))
-            ) : (
-              <Text style={styles.noPostsText}>No posts yet</Text>
-            )}
-          </View>
+          {renderPosts()}
         </View>
       </ScrollView>
 
@@ -597,15 +730,7 @@ export default function Profile() {
         </View>
       </Modal>
 
-      {/* New Post Modal Design */}
-      {selectedPost && (
-        <PostModal
-          visible={!!selectedPost}
-          post={selectedPost}
-          onClose={() => setSelectedPost(null)}
-          onLikeUpdated={handleLikeUpdated}
-        />
-      )}
+      {renderPostModal()}
     </View>
   );
 }
@@ -808,10 +933,10 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalContent: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1E1E1E',
     borderRadius: 20,
     overflow: 'hidden',
-    maxHeight: '90%',
+    maxHeight: '80%',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
@@ -951,17 +1076,21 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    width: '100%',
+    gap: 8,
+    paddingHorizontal: 16,
   },
   postContainer: {
-    width: '33.33%',
-    aspectRatio: 1,
-    padding: 1,
+    width: POST_WIDTH,
+    height: POST_WIDTH,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 8,
   },
   postImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#2A2A2A',
   },
   modalOverlay: {
     flex: 1,
@@ -1108,7 +1237,6 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     padding: 16,
-   
   },
   userInfo: {
     flexDirection: 'row',
@@ -1180,9 +1308,21 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   noPostsText: {
-    color: '#666',
     textAlign: 'center',
-    marginTop: 20,
     fontSize: 16,
+    color: '#666',
+    marginTop: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  noPostsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
 }); 

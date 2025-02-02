@@ -1,11 +1,11 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView, Dimensions, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView, Dimensions, Platform, Alert, Modal } from 'react-native';
 import { useLocalSearchParams, router, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/clerk-expo';
-import { auth, posts } from "@/lib/api";
-
+import { auth } from "@/lib/api";
+import { createPost } from "@/lib/api/posts";
 import { usePosts } from '@/contexts/posts';
 import * as FileSystem from 'expo-file-system';
 
@@ -27,7 +27,25 @@ export default function AddDetails() {
   const [currentTag, setCurrentTag] = useState('');
   const [tags, setTags] = useState<Tag[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [userObjectId, setUserObjectId] = useState<string | null>(null);
   const router = useRouter();
+
+  // Get MongoDB user ID when component mounts
+  useEffect(() => {
+    const initUser = async () => {
+      if (!user) return;
+      try {
+        const response = await auth.initializeBackendSession(user);
+        if (response.data.user._id) {
+          setUserObjectId(response.data.user._id);
+          console.log('✅ Set MongoDB User ID:', response.data.user._id);
+        }
+      } catch (error) {
+        console.error('❌ Error getting MongoDB user ID:', error);
+      }
+    };
+    initUser();
+  }, [user]);
 
   const handleAddTag = () => {
     if (currentTag.trim() && !tags.find(t => t.name === currentTag.trim())) {
@@ -41,22 +59,63 @@ export default function AddDetails() {
   };
 
   const handleShare = async () => {
+    if (!imageUri) {
+      Alert.alert('Error', 'Image is required');
+      return;
+    }
+
+    if (!description.trim()) {
+      Alert.alert('Error', 'Caption is required');
+      return;
+    }
+
+    if (!userObjectId) {
+      Alert.alert('Error', 'Please wait for authentication to complete');
+      return;
+    }
+
     try {
       setIsLoading(true);
-      const response = await posts.create({
-        imageUri,
-        caption: description.trim(),
-        tags: tags.map(t => t.name),
-        filters: cssFilters,
-        location
-      });
-
-      if (response.success) {
-        console.log('Post created successfully');
-        // Navigate to profile tab and refresh
-        router.push('/(tabs)/profile');
-        // You might want to trigger a refresh of the profile posts here
+      
+      // Convert image to base64 if it isn't already
+      let base64Image = imageUri;
+      if (!imageUri.startsWith('data:image')) {
+        const base64Data = await FileSystem.readAsStringAsync(imageUri, {
+          encoding: FileSystem.EncodingType.Base64
+        });
+        base64Image = `data:image/jpeg;base64,${base64Data}`;
       }
+
+      // Create FormData object
+      const formData = new FormData();
+      
+      // Append required fields
+      formData.append('image', base64Image);
+      formData.append('caption', description.trim());
+      formData.append('category', JSON.stringify(['Technology']));
+      formData.append('author', userObjectId);
+
+      // Append optional fields
+      if (cssFilters) formData.append('filters', cssFilters);
+      if (tags.length > 0) formData.append('tags', JSON.stringify(tags.map(t => t.name)));
+      if (location) formData.append('location', location);
+
+      console.log('🔄 Creating post with data:', {
+        caption: description.trim(),
+        category: ['Technology'],
+        author: userObjectId,
+        tags: tags.map(t => t.name),
+        location,
+        filters: cssFilters,
+        imageLength: base64Image.length, // Log image length for debugging
+      });
+      
+      const newPost = await createPost(formData);
+      console.log('✅ Post created successfully:', newPost);
+
+      // Navigate to profile tab
+      router.push('/(tabs)/profile');
+      
     } catch (error) {
       console.error('Error sharing post:', error);
       Alert.alert('Error', 'Failed to share post. Please try again.');

@@ -7,6 +7,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PostsProvider } from '@/contexts/posts';
 import { ActivityStatusProvider } from '@/contexts/ActivityStatus';
+import { PortalProvider } from '@gorhom/portal';
 
 const tokenCache = {
   async getToken(key: string) {
@@ -51,16 +52,18 @@ function InitialLayout() {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ClerkProvider
-        publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
-        tokenCache={tokenCache}
-      >
-        <ActivityStatusProvider>
-          <PostsProvider>
-            <InitialLayout />
-          </PostsProvider>
-        </ActivityStatusProvider>
-      </ClerkProvider>
+      <PortalProvider>
+        <ClerkProvider
+          publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+          tokenCache={tokenCache}
+        >
+          <ActivityStatusProvider>
+            <PostsProvider>
+              <InitialLayout />
+            </PostsProvider>
+          </ActivityStatusProvider>
+        </ClerkProvider>
+      </PortalProvider>
     </GestureHandlerRootView>
   );
 }
