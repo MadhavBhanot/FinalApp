@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -11,17 +11,17 @@ import {
   SafeAreaView,
   FlatList,
   RefreshControl,
-  Alert
+  Alert,
+  Keyboard
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useUser } from '@clerk/clerk-expo';
 import { usePosts } from '@/contexts/posts';
-import { CreatePostModal } from '@/components/CreatePostModal';
 import { NotificationModal } from '@/components/NotificationModal';
-import { MessagesModal } from '@/components/MessagesModal';
 import { StoryModal } from '@/components/StoryModal';
+import { SearchOverlay } from '@/components/SearchOverlay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const STORY_SIZE = 70;
@@ -36,14 +36,15 @@ interface RecommendedUser {
 export default function Home() {
   const { user } = useUser();
   const { posts, addPost } = usePosts();
-  const [showCreatePost, setShowCreatePost] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showMessages, setShowMessages] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [feedPosts, setFeedPosts] = useState<Post[]>([]);
   const [showStoryModal, setShowStoryModal] = useState(false);
   const [selectedStory, setSelectedStory] = useState<string | null>(null);
   const [isCreatingStory, setIsCreatingStory] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   // Dummy data for stories
   const stories = [
@@ -115,12 +116,33 @@ export default function Home() {
     return `${seconds}s`;
   };
 
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+      }
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Top Navigation */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.appName}>AppName</Text>
+          <Text style={styles.appName}>SkillArc</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity 
@@ -131,18 +153,19 @@ export default function Home() {
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.iconButton}
-            onPress={() => setShowMessages(true)}
+            onPress={() => setShowSearch(true)}
           >
-            <Ionicons name="paper-plane-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.iconButton}
-            onPress={() => setShowCreatePost(true)}
-          >
-            <Ionicons name="add-circle-outline" size={24} color="#fff" />
+            <Ionicons name="search-outline" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
+
+      <SearchOverlay 
+        isVisible={showSearch}
+        onClose={() => setShowSearch(false)}
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
 
       <ScrollView
         refreshControl={
@@ -160,7 +183,7 @@ export default function Home() {
           showsHorizontalScrollIndicator={false}
           style={styles.storiesContainer}
         >
-          {/* Add Story Button */}
+          {/* Your Story */}
           <TouchableOpacity 
             style={styles.storyItem} 
             onPress={() => {
@@ -168,61 +191,57 @@ export default function Home() {
               setShowStoryModal(true);
             }}
           >
-            <View style={styles.addStoryButton}>
-              <LinearGradient
-                colors={['#4CAF50', '#2196F3']}
-                style={styles.storyRing}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.storyImageContainer}>
+            <View style={styles.storyWrapper}>
+              <View style={styles.storyImageContainer}>
+                {user?.imageUrl ? (
                   <Image 
-                    source={{ uri: user?.imageUrl }}
+                    source={{ uri: user.imageUrl }} 
                     style={styles.storyImage}
                   />
-                  <LinearGradient
-                    colors={['#2196F3', '#4CAF50']}
-                    style={styles.addIconContainer}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <Ionicons 
-                      name="add" 
-                      size={20} 
-                      color="#fff" 
-                      style={{ 
-                        textShadowColor: 'rgba(0, 0, 0, 0.3)',
-                        textShadowOffset: { width: 0, height: 1 },
-                        textShadowRadius: 2
-                      }} 
-                    />
-                  </LinearGradient>
+                ) : (
+                  <View style={styles.storyImagePlaceholder}>
+                    <Text style={styles.storyImagePlaceholderText}>
+                      {user?.firstName?.[0] || user?.username?.[0] || '?'}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.addIconContainer}>
+                  <Ionicons name="add" size={24} color="#fff" style={styles.addIcon} />
                 </View>
-              </LinearGradient>
+              </View>
               <Text style={styles.storyUsername}>Your Story</Text>
             </View>
           </TouchableOpacity>
 
           {/* Other Stories */}
-          {stories.map(story => {
-            if (story.type === 'add') return null;
-            return (
-              <TouchableOpacity key={story.id} style={styles.storyItem}>
-                <LinearGradient
-                  colors={['#E91E63', '#2196F3']}
-                  style={styles.storyRing}
-                >
-                  <View style={styles.storyImageContainer}>
-                    <Image 
-                      source={{ uri: story.imageUrl }}
-                      style={styles.storyImage}
-                    />
-                  </View>
-                </LinearGradient>
-                <Text style={styles.storyUsername}>{story.username}</Text>
-              </TouchableOpacity>
-            );
-          })}
+          {stories.map((story, index) => (
+            <TouchableOpacity 
+              key={story.id} 
+              style={styles.storyItem}
+              onPress={() => {
+                setSelectedStory(story.imageUrl);
+                setShowStoryModal(true);
+              }}
+            >
+              <LinearGradient
+                colors={[
+                  index % 2 === 0 ? '#833AB4' : '#E1306C',
+                  index % 2 === 0 ? '#C13584' : '#833AB4'
+                ]}
+                style={styles.storyGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <View style={styles.storyImageContainer}>
+                  <Image 
+                    source={{ uri: story.imageUrl }} 
+                    style={styles.storyImage}
+                  />
+                </View>
+              </LinearGradient>
+              <Text style={styles.storyUsername}>{story.username}</Text>
+            </TouchableOpacity>
+          ))}
         </ScrollView>
 
         {/* Feed Section */}
@@ -321,17 +340,9 @@ export default function Home() {
       </ScrollView>
 
       {/* Modals */}
-      <CreatePostModal 
-        isVisible={showCreatePost}
-        onClose={() => setShowCreatePost(false)}
-      />
       <NotificationModal
         isVisible={showNotifications}
         onClose={() => setShowNotifications(false)}
-      />
-      <MessagesModal
-        isVisible={showMessages}
-        onClose={() => setShowMessages(false)}
       />
       <StoryModal
         isVisible={showStoryModal}
@@ -379,69 +390,83 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   storiesContainer: {
-    paddingVertical: 8,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#222',
   },
   storyItem: {
-    alignItems: 'center',
     marginRight: 16,
+    alignItems: 'center',
+    position: 'relative',
+    width: STORY_SIZE,
   },
-  storyRing: {
+  storyWrapper: {
+    position: 'relative',
+    width: STORY_SIZE,
+    height: STORY_SIZE,
+    marginBottom: 24,
+  },
+  storyGradient: {
     width: STORY_SIZE + 4,
     height: STORY_SIZE + 4,
     borderRadius: (STORY_SIZE + 4) / 2,
     padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
   },
   storyImageContainer: {
     width: STORY_SIZE,
     height: STORY_SIZE,
     borderRadius: STORY_SIZE / 2,
-    backgroundColor: '#000',
-    borderWidth: 3,
-    borderColor: '#000',
-    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+    overflow: 'visible',
+    borderWidth: 2,
+    borderColor: '#262626',
   },
   storyImage: {
     width: '100%',
     height: '100%',
+    borderRadius: STORY_SIZE / 2,
+  },
+  storyImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyImagePlaceholderText: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
   },
   addIconContainer: {
     position: 'absolute',
-    bottom: -4,
-    right: -4,
-    backgroundColor: '#2196F3',
-    borderRadius: 12,
+    bottom: -2,
+    right: -2,
     width: 24,
     height: 24,
+    borderRadius: 12,
+    backgroundColor: '#0095F6',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2.5,
+    borderWidth: 2,
     borderColor: '#000',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    zIndex: 2,
+  },
+  addIcon: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginTop: -1,
   },
   storyUsername: {
+    position: 'absolute',
+    bottom: -24,
+    width: '100%',
     color: '#fff',
     fontSize: 12,
-    marginTop: 4,
     textAlign: 'center',
   },
   feedSection: {

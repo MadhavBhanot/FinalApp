@@ -9,7 +9,7 @@ export default function AuthLayout() {
 
   useEffect(() => {
     if (isLoaded && isSignedIn) {
-      router.replace('/(tabs)');
+      router.replace('/(tabs)/home');
     }
   }, [isSignedIn, isLoaded]);
 

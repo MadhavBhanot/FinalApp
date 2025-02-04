@@ -37,12 +37,20 @@ function InitialLayout() {
     const inTabsGroup = segments[0] === '(tabs)';
     const inAuthGroup = segments[0] === '(auth)';
 
-    if (isSignedIn && inAuthGroup) {
-      // Redirect to home if user is signed in and tries to access auth screens
-      router.replace('/(tabs)');
-    } else if (!isSignedIn && inTabsGroup) {
-      // Redirect to sign in if user is not signed in and tries to access protected screens
-      router.replace('/(auth)/signin');
+    if (isSignedIn) {
+      // If user is signed in, redirect to home
+      if (segments.length === 0 || inAuthGroup) {
+        router.replace('/(tabs)/home');
+      }
+    } else {
+      // If user is not signed in
+      if (inTabsGroup) {
+        // Redirect to sign in if trying to access protected screens
+        router.replace('/(auth)/signin');
+      } else if (segments.length === 0) {
+        // Show terms page for new sessions
+        router.replace('/');  // This will show the index page with terms
+      }
     }
   }, [isSignedIn, segments, isLoaded]);
 
