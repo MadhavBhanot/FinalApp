@@ -9,6 +9,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { EditProfileModal } from './EditProfile';
 import { SettingsModal } from './SettingsModal';
+import { useActivityStatus } from '@/contexts/ActivityStatus';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -19,6 +20,7 @@ export function HamburgerMenu({ isVisible, onClose }: { isVisible: boolean; onCl
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const { isActive } = useActivityStatus();
 
   useEffect(() => {
     if (isVisible) {
@@ -88,18 +90,23 @@ export function HamburgerMenu({ isVisible, onClose }: { isVisible: boolean; onCl
       <View style={styles.profileInfo}>
         <View style={styles.avatarContainer}>
           {user?.imageUrl ? (
-            <Image 
-              source={{ uri: user.imageUrl }} 
-              style={styles.avatar}
-            />
+            <View>
+              <Image
+                source={{ uri: user.imageUrl }}
+                style={styles.avatar}
+              />
+              {isActive && <View style={styles.statusDot} />}
+            </View>
           ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>
-                {user?.firstName?.[0] || user?.username?.[0] || '?'}
-              </Text>
+            <View>
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>
+                  {user?.firstName?.[0] || user?.username?.[0] || '?'}
+                </Text>
+              </View>
+              {isActive && <View style={styles.statusDot} />}
             </View>
           )}
-          <View style={styles.statusDot} />
         </View>
         <View style={styles.userInfo}>
           <Text style={styles.userName}>
@@ -301,14 +308,14 @@ const styles = StyleSheet.create({
   },
   statusDot: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    bottom: 2,
+    right: 2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: '#4CAF50',
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: '#000',
   },
   userInfo: {
     marginLeft: 16,

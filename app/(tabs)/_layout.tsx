@@ -1,56 +1,45 @@
-import { Redirect, Tabs } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
+import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useEffect } from 'react';
-import { router } from 'expo-router';
+import { useRouter } from 'expo-router';
 
 export default function TabLayout() {
-  const { isSignedIn, isLoaded } = useAuth();
-  const theme = useColorScheme();
-
-  useEffect(() => {
-    if (isLoaded && !isSignedIn) {
-      router.replace('/(auth)/signin');
-    }
-  }, [isSignedIn, isLoaded]);
-
-  if (!isLoaded) {
-    return null;
-  }
-
-  if (!isSignedIn) {
-    return <Redirect href="/(auth)/signin" />;
-  }
+  const router = useRouter();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#6C63FF',
         tabBarStyle: {
           backgroundColor: '#000',
           borderTopColor: '#222',
         },
-        tabBarInactiveTintColor: '#888',
+        tabBarActiveTintColor: '#6C63FF',
+        tabBarInactiveTintColor: '#666',
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
-          ),
-        }}
-      />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="person" size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="create-post"
+        options={{
+          title: 'Create',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="add-circle-outline" size={24} color={color} />
+          ),
+        }}
+        listeners={{
+          tabPress: (e) => {
+            e.preventDefault(); // Prevent default navigation
+            // Force navigate to select-media screen
+            router.push('/(tabs)/create-post/select-media');
+          },
         }}
       />
     </Tabs>

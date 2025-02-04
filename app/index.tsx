@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Animated, Pressable, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Link } from 'expo-router';
@@ -13,6 +13,7 @@ export default function Index() {
   const scaleAnim = new Animated.Value(1);
   const opacityAnim = new Animated.Value(1);
   const [animationComplete, setAnimationComplete] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
 
   useEffect(() => {
     Animated.sequence([
@@ -37,26 +38,35 @@ export default function Index() {
     backgroundColor: Colors[theme].background,
   };
 
+  const handleButtonPress = (e: any) => {
+    if (!termsAccepted) {
+      e.preventDefault();
+      Alert.alert('Terms Required', 'Please accept the terms and conditions to continue.');
+      return;
+    }
+  };
+
   return (
     <View style={containerStyle}>
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            backgroundColor: '#6C63FF',
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: opacityAnim,
-            transform: [{ scale: scaleAnim }],
-            zIndex: 1,
-          },
-        ]}
-        pointerEvents={animationComplete ? 'none' : 'auto'}
-      >
-        <Svg height="80" width="80" viewBox="0 0 100 100">
-          <Circle cx="50" cy="50" r="40" fill="#000" opacity="0.9" />
-        </Svg>
-      </Animated.View>
+      {!animationComplete && (
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: '#6C63FF',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: opacityAnim,
+              transform: [{ scale: scaleAnim }],
+              zIndex: 1,
+            },
+          ]}
+        >
+          <Svg height="80" width="80" viewBox="0 0 100 100">
+            <Circle cx="50" cy="50" r="40" fill="#000" opacity="0.9" />
+          </Svg>
+        </Animated.View>
+      )}
       
       <View style={[styles.container, { backgroundColor: Colors[theme].background }]}>
         <View style={styles.artworkContainer}>
@@ -127,15 +137,50 @@ export default function Index() {
           your path to success starts here
         </Text>
 
-        <Link href="/(auth)/signin" asChild>
-          <TouchableOpacity style={styles.continueButton}>
-            <Text style={styles.buttonText}>Start Learning</Text>
+        <Link 
+          href="/(auth)/signin" 
+          asChild
+          onPress={handleButtonPress}
+        >
+          <TouchableOpacity 
+            style={[
+              styles.continueButton,
+              !termsAccepted && styles.continueButtonDisabled
+            ]}
+            disabled={!termsAccepted}
+          >
+            <Text style={[
+              styles.buttonText,
+              !termsAccepted && styles.buttonTextDisabled
+            ]}>
+              Start Learning
+            </Text>
           </TouchableOpacity>
         </Link>
 
-        <TouchableOpacity onPress={() => setTermsModalVisible(true)}>
-          <Text style={[styles.termsText, { color: Colors[theme].text }]}>Terms and Conditions</Text>
-        </TouchableOpacity>
+        <View style={styles.termsContainer}>
+          <TouchableOpacity 
+            style={styles.checkbox}
+            onPress={() => setTermsAccepted(prev => !prev)}
+            activeOpacity={0.8}
+          >
+            <View style={[
+              styles.checkboxInner,
+              termsAccepted && styles.checkboxChecked
+            ]}>
+              {termsAccepted && <Text style={styles.checkmark}>✓</Text>}
+            </View>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            onPress={() => setTermsModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.termsText, { color: Colors[theme].text }]}>
+              Terms and Conditions
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <Modal
           animationType="slide"
@@ -211,7 +256,9 @@ export default function Index() {
 
               <TouchableOpacity
                 style={styles.acceptButton}
-                onPress={() => setTermsModalVisible(false)}
+                onPress={() => {
+                  setTermsModalVisible(false);
+                }}
               >
                 <Text style={styles.acceptButtonText}>I Accept</Text>
               </TouchableOpacity>
@@ -228,6 +275,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
+    backgroundColor: '#0A0A0A',
   },
   artworkContainer: {
     marginBottom: 40,
@@ -246,17 +294,31 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     fontWeight: '400',
   },
-  continueButton: {
-    backgroundColor: '#6C63FF', // Modern purple
-    paddingHorizontal: 60,
-    paddingVertical: 16,
-    borderRadius: 30,
+  button: {
+    width: 200,
+    height: 48,
+    borderRadius: 24,
+    overflow: 'hidden',
     marginBottom: 20,
   },
+  buttonGradient: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  buttonDisabled: {
+    backgroundColor: '#9995CC',
+    opacity: 0.5,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+  },
   buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   termsText: {
     textDecorationLine: 'underline',
@@ -337,5 +399,67 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  termsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 10,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#6C63FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  checkboxInner: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 2,
+  },
+  checkboxChecked: {
+    backgroundColor: '#6C63FF',
+  },
+  checkmark: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  buttonTextDisabled: {
+    color: '#4B4B4B',
+  },
+  continueButton: {
+    backgroundColor: '#5B21B6',
+    paddingHorizontal: 60,
+    paddingVertical: 16,
+    borderRadius: 100,
+    marginBottom: 30,
+    width: 280,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#7C3AED',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#7C3AED',
+  },
+  continueButtonDisabled: {
+    backgroundColor: '#1F1F1F',
+    opacity: 1,
+    shadowOpacity: 0,
+    elevation: 0,
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
   },
 });

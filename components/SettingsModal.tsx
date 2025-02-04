@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -7,11 +7,19 @@ import {
   TouchableOpacity, 
   Alert,
   ScrollView,
-  ActivityIndicator
+  Switch,
+  Animated,
+  Dimensions,
+  Platform,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth, useUser } from '@clerk/clerk-expo';
-import { router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { PrivacySettingsModal } from './PrivacySettingsModal';
+import { useActivityStatus } from '@/contexts/ActivityStatus';
+import { NotificationSettingsModal } from './NotificationSettingsModal';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface SettingsModalProps {
   isVisible: boolean;
@@ -19,201 +27,451 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isVisible, onClose }: SettingsModalProps) {
-  const { user } = useUser();
-  const { signOut } = useAuth();
-  const [isDeleting, setIsDeleting] = useState(false);
+  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false);
+  const [deactivatePassword, setDeactivatePassword] = useState('');
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [email, setEmail] = useState('');
+  const [isDeactivating, setIsDeactivating] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const { isActive, setIsActive } = useActivityStatus();
 
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account? This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsDeleting(true);
-              const userEmail = user?.emailAddresses[0]?.emailAddress;
-              const userId = user?.id;
-              
-              await user?.delete();
-              await signOut();
-              
-              console.log('Account deleted successfully:', {
-                userId,
-                email: userEmail,
-                timestamp: new Date().toISOString(),
-                status: 'success'
-              });
-              
-              router.replace('/(auth)/signin');
-            } catch (error: any) {
-              console.error('Delete account error:', {
-                userId: user?.id,
-                email: user?.emailAddresses[0]?.emailAddress,
-                error: error.message,
-                timestamp: new Date().toISOString(),
-                status: 'failed'
-              });
-              
-              Alert.alert(
-                'Error',
-                error.message || 'Failed to delete account. Please try again.'
-              );
-            } finally {
-              setIsDeleting(false);
-            }
-          },
-        },
-      ],
-      { cancelable: true }
-    );
-  };
+  useEffect(() => {
+    if (isVisible) {
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        damping: 20,
+        mass: 0.6,
+        stiffness: 250,
+      }).start();
+    } else {
+      Animated.spring(translateY, {
+        toValue: SCREEN_HEIGHT,
+        useNativeDriver: true,
+        damping: 20,
+        mass: 0.6,
+        stiffness: 250,
+      }).start();
+    }
+  }, [isVisible]);
 
-  const settingsOptions = [
+  const settings = [
     {
-      icon: 'notifications-outline',
-      label: 'Notifications',
-      color: '#4CAF50',
-      bgColor: 'rgba(76, 175, 80, 0.15)',
-      onPress: () => Alert.alert('Coming Soon', 'Notification settings will be available soon!')
-    },
-    {
-      icon: 'lock-closed-outline',
-      label: 'Privacy',
+      id: 'privacy',
+      title: 'Privacy Settings',
+      description: 'Profile visibility and content access',
+      icon: 'shield-checkmark',
       color: '#2196F3',
-      bgColor: 'rgba(33, 150, 243, 0.15)',
-      onPress: () => Alert.alert('Coming Soon', 'Privacy settings will be available soon!')
+      type: 'navigate',
+      onPress: () => setShowPrivacyModal(true)
     },
     {
-      icon: 'shield-outline',
-      label: 'Security',
-      color: '#FFC107',
-      bgColor: 'rgba(255, 193, 7, 0.15)',
-      onPress: () => Alert.alert('Coming Soon', 'Security settings will be available soon!')
+      id: 'notifications',
+      title: 'Notifications',
+      description: 'Manage your notification preferences',
+      icon: 'notifications',
+      color: '#FF9800',
+      type: 'navigate',
+      onPress: () => setShowNotificationModal(true)
     },
     {
-      icon: 'trash-outline',
-      label: 'Delete Account',
+      id: 'deactivate',
+      title: 'Deactivate Account',
+      description: 'Temporarily disable your account',
+      icon: 'warning',
       color: '#FF5252',
-      bgColor: 'rgba(255, 82, 82, 0.15)',
-      onPress: handleDeleteAccount
+      type: 'navigate',
+      onPress: () => setShowDeactivateModal(true)
     }
   ];
+
+  const handleDeactivateAccount = async () => {
+    if (!deactivatePassword) {
+      setPasswordError('Please enter your password');
+      return;
+    }
+
+    try {
+      setIsDeactivating(true);
+      setPasswordError(null);
+      
+      // Add your deactivation logic here
+      
+      await signOut();
+      router.replace('/(auth)/signin');
+    } catch (error: any) {
+      setPasswordError('Failed to deactivate account. Please check your password and try again.');
+      console.error('Account deactivation error:', error);
+    } finally {
+      setIsDeactivating(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      Alert.alert('Error', 'Please enter your email address');
+      return;
+    }
+
+    try {
+      // Add your password reset logic here
+      
+      Alert.alert(
+        'Password Reset',
+        'If an account exists for this email, you will receive password reset instructions.',
+        [{ text: 'OK', onPress: () => setShowForgotPasswordModal(false) }]
+      );
+    } catch (error) {
+      Alert.alert('Error', 'Failed to send password reset email. Please try again.');
+    }
+  };
 
   return (
     <Modal
       visible={isVisible}
-      animationType="slide"
-      presentationStyle="pageSheet"
+      transparent
+      animationType="none"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="chevron-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Settings</Text>
-          <View style={styles.placeholder} />
-        </View>
-
-        {isDeleting ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6C63FF" />
-            <Text style={styles.loadingText}>Deleting account...</Text>
+      <View style={styles.overlay}>
+        <TouchableOpacity 
+          style={styles.backdrop} 
+          activeOpacity={1} 
+          onPress={onClose}
+        />
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              transform: [{ translateY }],
+            }
+          ]}
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>Privacy & Security</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
           </View>
-        ) : (
+
           <ScrollView style={styles.content}>
-            {settingsOptions.map((option, index) => (
+            {settings.map((setting) => (
               <TouchableOpacity
-                key={index}
-                style={styles.option}
-                onPress={option.onPress}
+                key={setting.id}
+                style={styles.settingItem}
+                onPress={setting.type === 'navigate' ? setting.onPress : undefined}
               >
-                <View style={[styles.iconContainer, { backgroundColor: option.bgColor }]}>
-                  <Ionicons name={option.icon as any} size={24} color={option.color} />
+                <View style={styles.settingIcon}>
+                  <LinearGradient
+                    colors={[`${setting.color}20`, `${setting.color}10`]}
+                    style={styles.iconGradient}
+                  >
+                    <Ionicons name={setting.icon as any} size={24} color={setting.color} />
+                  </LinearGradient>
                 </View>
-                <View style={styles.optionTextContainer}>
-                  <Text style={styles.optionLabel}>{option.label}</Text>
+                <View style={styles.settingContent}>
+                  <Text style={styles.settingTitle}>{setting.title}</Text>
+                  <Text style={styles.settingDescription}>{setting.description}</Text>
+                </View>
+                {setting.type === 'switch' ? (
+                  <Switch
+                    value={setting.value}
+                    onValueChange={setting.onValueChange}
+                    trackColor={{ false: '#767577', true: `${setting.color}50` }}
+                    thumbColor={setting.value ? setting.color : '#f4f3f4'}
+                  />
+                ) : (
                   <Ionicons name="chevron-forward" size={20} color="#666" />
-                </View>
+                )}
               </TouchableOpacity>
             ))}
           </ScrollView>
-        )}
+        </Animated.View>
       </View>
+
+      <PrivacySettingsModal
+        isVisible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+      />
+
+      <NotificationSettingsModal
+        isVisible={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+      />
+
+      <Modal
+        visible={showDeactivateModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeactivateModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Deactivate Account</Text>
+            <Text style={styles.modalDescription}>
+              Enter your password to deactivate your account. You can reactivate your account at any time by signing in again.
+            </Text>
+            
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Enter your password"
+              placeholderTextColor="#666"
+              secureTextEntry
+              value={deactivatePassword}
+              onChangeText={(text) => {
+                setDeactivatePassword(text);
+                setPasswordError(null);
+              }}
+            />
+            
+            {passwordError && (
+              <Text style={styles.errorText}>{passwordError}</Text>
+            )}
+
+            <TouchableOpacity
+              style={styles.forgotPasswordButton}
+              onPress={() => {
+                setShowDeactivateModal(false);
+                setShowForgotPasswordModal(true);
+              }}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowDeactivateModal(false);
+                  setDeactivatePassword('');
+                  setPasswordError(null);
+                }}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.modalButton, 
+                  styles.deactivateButton,
+                  isDeactivating && styles.disabledButton
+                ]}
+                onPress={handleDeactivateAccount}
+                disabled={isDeactivating}
+              >
+                <Text style={styles.modalButtonText}>
+                  {isDeactivating ? 'Deactivating...' : 'Deactivate'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showForgotPasswordModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowForgotPasswordModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Reset Password</Text>
+            <Text style={styles.modalDescription}>
+              Enter your email address and we'll send you instructions to reset your password.
+            </Text>
+            
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Enter your email"
+              placeholderTextColor="#666"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={email}
+              onChangeText={setEmail}
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowForgotPasswordModal(false);
+                  setEmail('');
+                }}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalButton, styles.deactivateButton]}
+                onPress={handleForgotPassword}
+              >
+                <Text style={styles.modalButtonText}>Send Reset Link</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  overlay: {
     flex: 1,
-    backgroundColor: '#000',
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  sheet: {
+    backgroundColor: '#1A1A1A',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+    minHeight: '50%',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -3,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   header: {
     flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#222',
-  },
-  closeButton: {
-    padding: 8,
+    borderBottomColor: '#333',
+    position: 'relative',
   },
   title: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  closeButton: {
+    position: 'absolute',
+    right: 16,
+    padding: 4,
+  },
+  content: {
+    padding: 16,
+  },
+  settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    marginBottom: 12,
+    backgroundColor: '#222',
+    borderRadius: 12,
+  },
+  settingIcon: {
+    marginRight: 16,
+  },
+  iconGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  settingDescription: {
+    fontSize: 13,
+    color: '#999',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 12,
+    textAlign: 'center',
   },
-  placeholder: {
-    width: 40,
+  modalDescription: {
+    fontSize: 14,
+    color: '#999',
+    marginBottom: 20,
+    textAlign: 'center',
+    lineHeight: 20,
   },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  option: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
+  passwordInput: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    color: '#fff',
     marginBottom: 12,
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
+  errorText: {
+    color: '#FF5252',
+    fontSize: 14,
+    marginBottom: 12,
   },
-  optionTextContainer: {
-    flex: 1,
+  modalButtons: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
   },
-  optionLabel: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  loadingContainer: {
+  modalButton: {
     flex: 1,
-    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  loadingText: {
+  cancelButton: {
+    backgroundColor: '#333',
+  },
+  deactivateButton: {
+    backgroundColor: '#FF5252',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  modalButtonText: {
     color: '#fff',
-    marginTop: 16,
     fontSize: 16,
+    fontWeight: '600',
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    marginBottom: 20,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  forgotPasswordText: {
+    color: '#2196F3',
+    fontSize: 14,
+    fontWeight: '500',
   },
 }); 
