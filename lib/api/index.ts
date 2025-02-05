@@ -10,9 +10,16 @@ export * as profile from './profile';
 
 const getBaseUrl = () => {
   if (__DEV__) {
-    return Platform.OS === 'android' 
-      ? 'http://10.0.2.2:5001/api' 
-      : 'http://localhost:5001/api';
+    if (Platform.OS === 'android') {
+      // For Android Emulator
+      if (Platform.constants.Version >= 1000000) {
+        return 'http://10.0.2.2:5001/api';
+      }
+      // For physical Android device or Expo Go
+      return 'http://192.168.1.10:5001/api';
+    }
+    // For iOS
+    return 'http://localhost:5001/api';
   }
   return process.env.EXPO_PUBLIC_API_URL + '/api';
 };
@@ -29,16 +36,43 @@ const api = axios.create({
 api.interceptors.request.use(
   async (config) => {
     try {
+      console.log('🔄 Preparing request:', {
+        url: config.url,
+        method: config.method
+      });
+      
+      // List of public endpoints that don't need auth
+      const publicEndpoints = [
+        '/clerk/login',
+        '/clerk/createUser'
+      ];
+      
+      // Skip auth for public endpoints
+      const isPublicEndpoint = publicEndpoints.some(endpoint => config.url?.includes(endpoint));
+      if (isPublicEndpoint) {
+        console.log('🌐 Accessing public endpoint - skipping auth');
+        return config;
+      }
+      
       const token = await SecureStore.getItemAsync('auth_token');
+      console.log('🔑 Auth token found:', !!token);
+      
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
+        console.log('✅ Added auth header');
+      } else {
+        console.log('⚠️ No auth token available');
       }
       return config;
     } catch (error) {
+      console.error('❌ Error in request interceptor:', error);
       return config;
     }
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('❌ Request interceptor error:', error);
+    return Promise.reject(error);
+  }
 );
 
 // Simple response interceptor

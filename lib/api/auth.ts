@@ -65,41 +65,77 @@ export const getMongoUserId = async (): Promise<string | null> => {
 // Initialize backend session after Clerk authentication
 export const initializeBackendSession = async (user: any) => {
   try {
-    // Check if we already have a valid token and mongo ID
-    const existingToken = await SecureStore.getItemAsync('auth_token');
-    const existingMongoId = await SecureStore.getItemAsync('mongo_user_id');
+    console.log('🔄 Initializing backend session for user:', {
+      clerkId: user?.id,
+      email: user?.emailAddresses[0]?.emailAddress
+    });
     
-    if (existingToken && existingMongoId) {
-      console.log('Using existing session');
-      return { 
-        data: { 
-          token: existingToken,
-          user: { _id: existingMongoId }
-        } 
-      };
+    if (!user?.id) {
+      console.error('❌ No Clerk user ID provided');
+      return null;
     }
 
-    // If no existing session, try to login
+    // Try to login/create user in our backend
     const loginResponse = await api.post('/clerk/login', {
       clerkId: user.id,
       email: user.emailAddresses[0]?.emailAddress,
+      username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      imageUrl: user.imageUrl
     });
 
-    if (loginResponse.data?.token) {
-      await SecureStore.setItemAsync('auth_token', loginResponse.data.token);
-      if (loginResponse.data.user?._id) {
-        await SecureStore.setItemAsync('mongo_user_id', loginResponse.data.user._id);
-      }
-      return loginResponse;
-    }
+    console.log('📥 Login/Register response:', loginResponse.data);
 
-    return loginResponse;
-  } catch (error) {
-    console.error('Error in session initialization:', error);
+    if (loginResponse.data?.data?.token && loginResponse.data?.data?.user?._id) {
+      console.log('💾 Storing credentials');
+      await SecureStore.setItemAsync('auth_token', loginResponse.data.data.token);
+      await SecureStore.setItemAsync('mongo_user_id', loginResponse.data.data.user._id);
+      console.log('✅ Stored MongoDB user ID:', loginResponse.data.data.user._id);
+      
+      return {
+        success: true,
+        data: {
+          user: loginResponse.data.data.user,
+          token: loginResponse.data.data.token
+        }
+      };
+    } else {
+      console.error('❌ Invalid login response format:', loginResponse.data);
+      return {
+        success: false,
+        error: 'Invalid login response format'
+      };
+    }
+  } catch (error: any) {
+    console.error('❌ Error in session initialization:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    });
     // Clear any potentially invalid tokens
     await SecureStore.deleteItemAsync('auth_token');
     await SecureStore.deleteItemAsync('mongo_user_id');
-    throw error;
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+// Get current user's MongoDB ID with better error handling
+export const getCurrentMongoUserId = async (): Promise<string | null> => {
+  try {
+    const mongoUserId = await SecureStore.getItemAsync('mongo_user_id');
+    if (!mongoUserId) {
+      console.log('⚠️ No MongoDB user ID found in storage');
+      return null;
+    }
+    console.log('✅ Retrieved MongoDB user ID:', mongoUserId);
+    return mongoUserId;
+  } catch (error) {
+    console.error('❌ Error getting MongoDB user ID:', error);
+    return null;
   }
 };
 

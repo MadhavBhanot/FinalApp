@@ -42,7 +42,18 @@ export interface CreatePostData {
 }
 
 export interface CommentData {
+  _id: string;
   content: string;
+  authorId: string;
+  createdAt: string;
+  replies: CommentData[];
+  parentComment?: string;
+}
+
+// Add interfaces for replies
+export interface ReplyData {
+  content: string;
+  parentCommentId: string;
 }
 
 // Get all posts
@@ -170,11 +181,21 @@ export const addComment = async (postId: string, commentData: CommentData): Prom
 // Get user posts
 export const getUserPosts = async (userId: string) => {
   try {
+    console.log('🔄 Fetching posts for user:', userId);
     const response = await api.get(`/posts/user/${userId}`);
+    
+    // If no posts, return empty array
+    if (!response.data || !response.data.posts) {
+      console.log('ℹ️ No posts found for user');
+      return { posts: [] };
+    }
+    
+    console.log('✅ Posts fetched successfully:', response.data.posts.length);
     return response.data;
   } catch (error) {
-    console.error('Error fetching user posts:', error);
-    throw error;
+    console.error('❌ Error fetching user posts:', error);
+    // Return empty array instead of throwing error
+    return { posts: [] };
   }
 };
 
@@ -199,4 +220,31 @@ const formatImageUri = (uri: string): string => {
   }
   
   return uri;
+};
+
+// Add a reply to a comment
+export const addReply = async (postId: string, commentId: string, data: { content: string; parentCommentId: string }) => {
+  try {
+    console.log('🔄 Adding reply:', { postId, commentId, data });
+    const response = await api.post(`/posts/comment/${postId}`, {
+      content: data.content,
+      parentComment: data.parentCommentId // Send the parent comment ID
+    });
+    console.log('✅ Reply added:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error adding reply:', error);
+    throw error;
+  }
+};
+
+// Get replies for a comment
+export const getReplies = async (commentId: string) => {
+  try {
+    const response = await api.get(`/comments/${commentId}/replies`);
+    return response.data;
+  } catch (error) {
+    console.error('Error getting replies:', error);
+    throw error;
+  }
 }; 

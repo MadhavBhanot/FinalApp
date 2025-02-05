@@ -7,7 +7,7 @@ import { useCallback, useRef, useMemo, useState, useEffect } from 'react';
 import * as FileSystem from 'expo-file-system';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { auth } from '@/lib/api/index';
-import { deletePost, updatePost } from '@/lib/api/posts';
+import { deletePost, updatePost, addReply, getReplies } from '@/lib/api/posts';
 import api from '@/lib/api/index';
 import { PanGestureHandler } from 'react-native-gesture-handler';
 import Animated, { 
@@ -26,9 +26,9 @@ interface PostModalProps {
   visible: boolean;
   onClose: () => void;
   onLike: () => void;
-  onComment: () => void;
+  onComment: (comment: CommentData) => void;
   onShare: () => void;
-  onPostDeleted: () => void;
+  onPostDeleted?: () => void;
 }
 
 interface ActionItemProps {
@@ -100,6 +100,644 @@ interface Comment {
   content: string;
   createdAt: string;
 }
+
+// Add type definitions
+interface CommentData {
+  _id: string;
+  author: {
+    _id?: string;
+    username: string;
+    imageUrl: string;
+    profileImg?: string;
+  };
+  content: string;
+  createdAt: string;
+  replies?: CommentData[];
+  parentComment?: string;
+}
+
+const styles = StyleSheet.create({
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  fixedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    height: Platform.OS === 'android' ? 56 + (StatusBar.currentHeight || 0) : 56,
+    backgroundColor: '#000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    marginTop: Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0,
+  },
+  headerTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  closeButton: {
+    padding: 8,
+    width: 44,
+    alignItems: 'center',
+    height: 44,
+    justifyContent: 'center',
+  },
+  moreButton: {
+    padding: 8,
+    width: 44,
+    alignItems: 'center',
+    height: 44,
+    justifyContent: 'center',
+  },
+  content: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  userInfoSection: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#262626',
+    backgroundColor: '#000',
+  },
+  userInfoContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userInfoText: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  authorImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  authorImagePlaceholder: {
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  authorImagePlaceholderText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  authorName: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+  },
+  location: {
+    color: '#999',
+    fontSize: 12,
+    marginTop: 2,
+    letterSpacing: 0.1,
+  },
+  postImage: {
+    width: '100%',
+    aspectRatio: 1,
+  },
+  postActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  leftActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButton: {
+    marginRight: 20,
+  },
+  postDetails: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  likesCount: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+    marginBottom: 6,
+    letterSpacing: 0.1,
+  },
+  captionContainer: {
+    marginVertical: 6,
+  },
+  captionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  captionUsername: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+    marginRight: 6,
+    letterSpacing: 0.1,
+  },
+  captionText: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+    lineHeight: 18,
+    letterSpacing: 0.1,
+  },
+  timestamp: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 6,
+    letterSpacing: 0.1,
+  },
+  bottomSheetContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 1000,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  bottomSheetBackground: {
+    backgroundColor: '#1a1a1a',
+  },
+  bottomSheetIndicator: {
+    backgroundColor: '#666',
+    width: 40,
+    height: 50,
+    borderRadius: 3,
+  },
+  bottomSheetContent: {
+    padding: 16,
+    paddingTop: 8,
+  },
+  actionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333',
+  },
+  actionLabel: {
+    color: '#fff',
+    fontSize: 16,
+    marginLeft: 16,
+    flex: 1,
+  },
+  destructiveText: {
+    color: '#ff3b30',
+  },
+  editModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  editModalContent: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    paddingBottom: 40,
+    minHeight: 300,
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333',
+  },
+  editModalTitle: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  editModalCancel: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  editModalSave: {
+    color: '#0095f6',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  editForm: {
+    padding: 16,
+  },
+  editField: {
+    marginBottom: 20,
+  },
+  editLabel: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  editInput: {
+    color: '#fff',
+    fontSize: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    minHeight: 40,
+  },
+  likesHeader: {
+    padding: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333',
+    backgroundColor: '#1a1a1a',
+  },
+  likesTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  likesList: {
+    paddingBottom: 20,
+  },
+  bottomSheetHeader: {
+    backgroundColor: '#1a1a1a',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  bottomSheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#666',
+    borderRadius: 3,
+  },
+  bottomSheetCloseButton: {
+    position: 'absolute',
+    right: 16,
+    top: 8,
+    padding: 4,
+  },
+  simpleOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  simpleTooltip: {
+    width: '80%',
+    backgroundColor: '#262626',
+    borderRadius: 12,
+    maxHeight: '90%',
+    alignSelf: 'center',
+  },
+  simpleTooltipHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#262626',
+    backgroundColor: '#1a1a1a',
+  },
+  simpleTooltipTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  simpleUserItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333',
+  },
+  simpleUserImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  simpleUserImagePlaceholder: {
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  simpleUsername: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  simpleMoreText: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  commentsContainer: {
+    padding: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#333',
+  },
+  commentsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333',
+    position: 'relative',
+  },
+  commentsTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  commentsBottomSheet: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+  },
+  flashListContainer: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+  },
+  commentsList: {
+    paddingHorizontal: 16,
+  },
+  commentItemContainer: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333',
+    height: 500,
+  },
+  commentUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  commentUserImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  commentUserImagePlaceholder: {
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentTextContainer: {
+    flex: 1,
+  },
+  commentUsername: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+    marginBottom: 2,
+    letterSpacing: 0.1,
+  },
+  commentContent: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 18,
+    letterSpacing: 0.1,
+  },
+  commentTime: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 4,
+    letterSpacing: 0.1,
+  },
+  noCommentsContainer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  noCommentsText: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 14,
+    letterSpacing: 0.1,
+    textAlign: 'center',
+  },
+  commentInputWrapper: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#333',
+    backgroundColor: '#000',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+  },
+  commentInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#262626',
+    backgroundColor: '#1a1a1a',
+  },
+  commentInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    padding: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: '#262626',
+    marginRight: 12,
+    height: 40,
+    letterSpacing: 0.1,
+  },
+  postCommentText: {
+    color: '#0095f6',
+    fontWeight: '600',
+    fontSize: 14,
+    letterSpacing: 0.1,
+  },
+  commentsModal: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#262626',
+    borderRadius: 12,
+    padding: 16,
+    paddingBottom: 0,
+  },
+  simpleUserContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  simpleCommentText: {
+    color: '#fff',
+    fontSize: 14,
+    marginTop: 2,
+  },
+  simpleTimeText: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  simpleInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#333',
+    paddingTop: 12,
+    marginTop: 8,
+  },
+  simpleTextInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    padding: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: '#1a1a1a',
+    marginRight: 12,
+    height: 40,
+  },
+  commentsSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#333',
+  },
+  commentItem: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  commentActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  cancelReplyButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  likeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  likeUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  likeUserImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  likeUserImagePlaceholder: {
+    backgroundColor: '#666',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  likeUsername: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  followButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  followButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  repliesContainer: {
+    marginLeft: 40,
+    marginTop: 8,
+  },
+  replyItem: {
+    marginTop: 8,
+    paddingLeft: 8,
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  replyButton: {
+    marginLeft: 16,
+  },
+  replyButtonText: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 6,
+    gap: 6,
+  },
+  tag: {
+    color: '#0095f6',
+    fontSize: 14,
+    letterSpacing: 0.1,
+  },
+  commentsLink: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
+    letterSpacing: 0.1,
+  },
+  overlayClose: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  commentsTooltip: {
+    width: '80%',
+    height: 500,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 16,
+    overflow: 'hidden',
+    alignSelf: 'center',
+  },
+  tooltipHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#1a1a1a',
+  },
+  tooltipTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  commentsScrollView: {
+    flex: 1,
+    padding: 16,
+    maxHeight: 500,
+  },
+  replyUserImage: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+});
 
 export default function PostModal({ post, visible, onClose, onLike, onComment, onShare, onPostDeleted }: PostModalProps) {
   if (!post) return null;
@@ -669,7 +1307,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
         // Update post's likes array
         if (newIsLiked) {
           post.likes = [...post.likes, mongoUserId];
-        } else {
+      } else {
           post.likes = post.likes.filter(id => id !== mongoUserId);
         }
         
@@ -689,56 +1327,67 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
   };
 
   // Add comment state
-  const [comments, setComments] = useState<Array<{
-    _id: string;
-    author: {
-      username: string;
-      imageUrl: string;
-    };
-    content: string;
-    createdAt: string;
-  }>>([]);
+  const [comments, setComments] = useState<CommentData[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isLoadingComments, setIsLoadingComments] = useState(false);
+
+  // Add a helper function to fetch user profile using MongoDB ID
+  const fetchUserProfileById = async (mongoUserId: string) => {
+    try {
+      // First get the user data from MongoDB to get the clerkId
+      const mongoUserResponse = await api.get(`/users/${mongoUserId}`);
+      console.log('Mongo user response:', mongoUserResponse.data);
+      
+      if (mongoUserResponse.data?.Data?.clerkId) {
+        // Now fetch the Clerk profile using clerkId
+        const clerkUserResponse = await api.get(`/clerk/user/${mongoUserResponse.data.Data.clerkId}`);
+        console.log('Clerk user response:', clerkUserResponse.data);
+        
+        return {
+          username: mongoUserResponse.data.Data.username,
+          imageUrl: clerkUserResponse.data?.user?.imageUrl || ''
+        };
+      }
+      return {
+        username: mongoUserResponse.data?.Data?.username || 'Unknown User',
+        imageUrl: ''
+      };
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
+    }
+  };
 
   // Update the fetchComments function
   const fetchComments = async () => {
     try {
       setIsLoadingComments(true);
       const response = await api.get(`/posts/comment/${post._id}`);
-      
+      console.log('Raw comments response:', response.data);
+
       if (response.data?.message === 'Comments Fetched Successfully') {
         const commentsData = response.data.comments || [];
-        const enrichedComments = await Promise.all(
-          commentsData.map(async (comment: any) => {
-            const cached = userCache.get(comment.authorId);
-            if (cached) {
-    return {
-                _id: comment._id,
-                content: comment.content,
-                createdAt: comment.createdAt,
-                author: cached
-              };
-            }
-
-            const mongoUser = await fetchMongoUser(comment.authorId);
-            const authorData = {
-              username: mongoUser?.username || 'Unknown User',
-              imageUrl: mongoUser?.profileImg || ''
-            };
-            
-            userCache.set(comment.authorId, authorData);
-            
-            return {
-              _id: comment._id,
-              content: comment.content,
-              createdAt: comment.createdAt,
-              author: authorData
-            };
-          })
-        );
         
-        setComments(enrichedComments);
+        // Process comments and their replies
+        const processedComments = commentsData.map((comment: CommentData) => ({
+          _id: comment._id,
+          content: comment.content,
+          createdAt: comment.createdAt,
+          author: comment.author,
+          parentComment: comment.parentComment,
+          replies: (comment.replies || []).map((reply: CommentData) => ({
+            _id: reply._id,
+            content: reply.content,
+            createdAt: reply.createdAt,
+            author: reply.author,
+            parentComment: reply.parentComment,
+            replies: []
+          }))
+        }));
+
+        console.log('Processed comments:', processedComments);
+        // Only show top-level comments (ones without parentComment)
+        setComments(processedComments.filter((comment: CommentData) => !comment.parentComment));
       }
     } catch (error) {
       console.error('Error fetching comments:', error);
@@ -747,44 +1396,68 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
     }
   };
 
-  // Update the handlePostComment function
-  const handlePostComment = async () => {
-    if (!newComment.trim()) return;
+  // Update the handleReply function
+  const handleReply = async () => {
+    if (!replyingTo || !newComment.trim()) return;
 
     try {
-      const mongoUserId = await auth.getMongoUserId();
-      if (!mongoUserId) {
-        Alert.alert('Error', 'You must be logged in to comment');
-        return;
-      }
-
-      const response = await api.post(`/posts/comment/${post._id}`, {
-        content: newComment
+      console.log('Sending reply:', {
+        postId: post._id,
+        commentId: replyingTo.commentId,
+        content: newComment.trim()
       });
 
-      if (response.data?.message === 'Comment Added Successfully') {
-        const currentUser = userCache.get(mongoUserId) || {
-          username: 'You',
-          imageUrl: ''
-        };
+      const response = await api.post(`/posts/comment/${post._id}`, {
+        content: newComment.trim(),
+        parentComment: replyingTo.commentId
+      });
 
-        const newCommentData = {
+      console.log('Reply response:', response.data);
+
+      if (response.data?.success && response.data?.comment) {
+        const newReply = {
           _id: response.data.comment._id,
           content: response.data.comment.content,
           createdAt: response.data.comment.createdAt,
-          author: currentUser
+          author: response.data.comment.author,
+          parentComment: response.data.comment.parentComment,
+          replies: []
         };
 
-        setComments(prev => [newCommentData, ...prev]);
+        // Update the comments state to add the reply to its parent
+        setComments(prevComments => 
+          prevComments.map(comment => {
+            if (comment._id === replyingTo.commentId) {
+              // Add reply to direct parent
+              return {
+                ...comment,
+                replies: [...(comment.replies || []), newReply]
+              };
+            }
+            // Check if the reply belongs to a nested reply
+            if (comment.replies?.length) {
+              return {
+                ...comment,
+                replies: comment.replies.map(reply => 
+                  reply._id === replyingTo.commentId
+                    ? { ...reply, replies: [...(reply.replies || []), newReply] }
+                  : reply
+                )
+              };
+            }
+            return comment;
+          })
+        );
+
+        // Clear the input and reply state
         setNewComment('');
+        setReplyingTo(null);
         commentInputRef.current?.blur();
         Keyboard.dismiss();
-
-        if (onComment) onComment();
       }
     } catch (error) {
-      console.error('Error posting comment:', error);
-      Alert.alert('Error', 'Failed to post comment. Please try again.');
+      console.error('Error posting reply:', error);
+      Alert.alert('Error', 'Failed to post reply. Please try again.');
     }
   };
 
@@ -851,6 +1524,89 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
   // Add post state
   const [postData, setPost] = useState(post);
 
+  // Add state for reply
+  const [replyingTo, setReplyingTo] = useState<{
+    commentId: string;
+    username: string;
+  } | null>(null);
+
+  // Update the renderComment function
+  const renderComment = (item: CommentData, level: number = 0) => (
+    <View key={item._id} style={[styles.commentItem, level > 0 && styles.replyItem]}>
+      <View style={styles.commentUserInfo}>
+        {item.author?.imageUrl ? (
+          <Image 
+            source={{ uri: item.author.imageUrl }}
+            style={[styles.commentUserImage, level > 0 && styles.replyUserImage]}
+          />
+        ) : (
+          <View style={[styles.commentUserImage, level > 0 && styles.replyUserImage, styles.commentUserImagePlaceholder]}>
+            <Ionicons name="person" size={12} color="#fff" />
+          </View>
+        )}
+        <View style={styles.commentTextContainer}>
+          <Text style={styles.commentUsername}>{item.author?.username || 'Unknown'}</Text>
+          <Text style={styles.commentContent}>{item.content}</Text>
+          <View style={styles.commentActions}>
+            <Text style={styles.commentTime}>{formatDate(item.createdAt)}</Text>
+            <TouchableOpacity 
+              onPress={() => {
+                setReplyingTo({
+                  commentId: item._id,
+                  username: item.author?.username || 'Unknown'
+                });
+                commentInputRef.current?.focus();
+              }}
+              style={styles.replyButton}
+            >
+              <Text style={styles.replyButtonText}>Reply</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      {/* Render replies */}
+      {item.replies && item.replies.length > 0 && (
+        <View style={styles.repliesContainer}>
+          {item.replies.map(reply => renderComment(reply, level + 1))}
+        </View>
+      )}
+    </View>
+  );
+
+  // Update the handlePostComment function
+  const handlePostComment = async () => {
+    if (!newComment.trim()) return;
+
+    try {
+      const response = await api.post(`/posts/comment/${post._id}`, {
+        content: newComment.trim()
+      });
+
+      console.log('Comment response:', response.data);
+
+      if (response.data?.success && response.data?.comment) {
+        const newCommentData = {
+          _id: response.data.comment._id,
+          content: response.data.comment.content,
+          createdAt: response.data.comment.createdAt,
+          author: response.data.comment.author,
+          replies: []
+        };
+
+        setComments(prev => [newCommentData, ...prev]);
+        setNewComment('');
+        commentInputRef.current?.blur();
+        Keyboard.dismiss();
+
+        if (onComment) onComment(newCommentData);
+      }
+    } catch (error) {
+      console.error('Error posting comment:', error);
+      Alert.alert('Error', 'Failed to post comment. Please try again.');
+    }
+  };
+
   return (
     <Portal>
     <Modal
@@ -878,7 +1634,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
           >
             <Ionicons name="ellipsis-horizontal" size={24} color="#fff" />
           </TouchableOpacity>
-        </View>
+              </View>
 
         <ScrollView 
           style={styles.content}
@@ -891,41 +1647,41 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
               {renderAuthorImage()}
               <View style={styles.userInfoText}>
                 <Text style={styles.authorName}>{authorData.username}</Text>
-                {post.location && (
-                  <Text style={styles.location}>
-                    <Ionicons name="location" size={12} color="#999" /> {post.location}
-                  </Text>
-                )}
-              </View>
+                    {post.location && (
+                      <Text style={styles.location}>
+                        <Ionicons name="location" size={12} color="#999" /> {post.location}
+                      </Text>
+                    )}
+                  </View>
             </View>
-          </View>
+                </View>
 
-          <Image 
+                  <Image 
             source={{ uri: formatImageUri(post.image) }}
             style={styles.postImage}
             resizeMode="cover"
-          />
+                  />
 
           <View style={styles.postActions}>
-            <View style={styles.leftActions}>
+                  <View style={styles.leftActions}>
               <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
-                <Ionicons 
+                      <Ionicons 
                   name={isLiked ? "heart" : "heart-outline"} 
                   size={24} 
                   color={isLiked ? "#ff2d55" : "#fff"} 
-                />
-              </TouchableOpacity>
+                      />
+                    </TouchableOpacity>
               <TouchableOpacity onPress={handleCommentsPress} style={styles.actionButton}>
-                <Ionicons name="chatbubble-outline" size={24} color="#fff" />
-              </TouchableOpacity>
+                      <Ionicons name="chatbubble-outline" size={24} color="#fff" />
+                    </TouchableOpacity>
               <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
-                <Ionicons name="paper-plane-outline" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity>
-              <Ionicons name="bookmark-outline" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
+                      <Ionicons name="paper-plane-outline" size={24} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity>
+                    <Ionicons name="bookmark-outline" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
 
           <View style={styles.postDetails}>
             {post.likes && post.likes.length > 0 && (
@@ -935,18 +1691,18 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
             )}
 
             {/* Username and Caption */}
-            <View style={styles.captionContainer}>
+                  <View style={styles.captionContainer}>
               <View style={styles.captionRow}>
                 <Text style={styles.captionUsername}>{authorData.username}</Text>
                 <Text style={styles.captionText} numberOfLines={3}>
                   {postData.content || post.caption || 'No caption'} {/* Try both content and caption fields */}
                 </Text>
               </View>
-            </View>
+                  </View>
 
             {/* Tags */}
             {post.tags && post.tags.length > 0 && (
-              <View style={styles.tagsContainer}>
+                    <View style={styles.tagsContainer}>
                 {post.tags.map((tag, index) => {
                   // Clean the tag: remove any special characters and spaces
                   const cleanTag = tag.replace(/[^a-zA-Z0-9]/g, '');
@@ -954,17 +1710,17 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                     <Text key={index} style={styles.tag}>#{cleanTag}</Text>
                   );
                 })}
-              </View>
-            )}
+                    </View>
+                  )}
 
             <TouchableOpacity onPress={handleCommentsPress}>
               <Text style={styles.commentsLink}>
                 {comments.length > 0 ? `View all ${comments.length} comments` : 'Add a comment'}
-              </Text>
+                  </Text>
             </TouchableOpacity>
 
             <Text style={styles.timestamp}>{formatDate(post.createdAt)}</Text>
-          </View>
+                </View>
 
           {/* Comments Modal */}
           {isCommentsModalVisible && (
@@ -990,50 +1746,42 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                   showsVerticalScrollIndicator={false}
                   bounces={true}
                 >
-                  {comments.map((item) => (
-                    <View key={item._id} style={styles.commentItem}>
-                      <View style={styles.commentUserInfo}>
-                        {item.author.imageUrl ? (
-                          <Image 
-                            source={{ uri: item.author.imageUrl }}
-                            style={styles.commentUserImage}
-                          />
-                        ) : (
-                          <View style={[styles.commentUserImage, styles.commentUserImagePlaceholder]}>
-                            <Ionicons name="person" size={12} color="#fff" />
-                          </View>
-                        )}
-                        <View style={styles.commentTextContainer}>
-                          <Text style={styles.commentUsername}>{item.author.username}</Text>
-                          <Text style={styles.commentContent}>{item.content}</Text>
-                          <Text style={styles.commentTime}>{formatDate(item.createdAt)}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ))}
+                  {comments.map((item) => renderComment(item))}
 
                   {comments.length === 0 && (
                     <View style={styles.noCommentsContainer}>
                       <Text style={styles.noCommentsText}>No comments yet</Text>
                     </View>
                   )}
-                </ScrollView>
+              </ScrollView>
 
                 <View style={styles.commentInputContainer}>
                   <TextInput
                     ref={commentInputRef}
                     style={styles.commentInput}
-                    placeholder="Add a comment..."
+                    placeholder={replyingTo 
+                      ? `Reply to ${replyingTo.username}...` 
+                      : "Add a comment..."}
                     placeholderTextColor="#666"
                     value={newComment}
                     onChangeText={setNewComment}
-                    onSubmitEditing={handlePostComment}
+                    onSubmitEditing={replyingTo ? handleReply : handlePostComment}
                     returnKeyType="send"
                     blurOnSubmit={true}
                   />
                   {newComment.trim() !== '' && (
-                    <TouchableOpacity onPress={handlePostComment}>
-                      <Text style={styles.postCommentText}>Post</Text>
+                    <TouchableOpacity onPress={replyingTo ? handleReply : handlePostComment}>
+                      <Text style={styles.postCommentText}>
+                        {replyingTo ? 'Reply' : 'Post'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {replyingTo && (
+                    <TouchableOpacity 
+                      onPress={() => setReplyingTo(null)}
+                      style={styles.cancelReplyButton}
+                    >
+                      <Ionicons name="close" size={20} color="#666" />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1042,7 +1790,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
           )}
         </ScrollView>
 
-        {isBottomSheetVisible && (
+          {isBottomSheetVisible && (
           <GestureHandlerRootView style={styles.bottomSheetContainer}>
             <BottomSheet
               ref={bottomSheetRef}
@@ -1127,10 +1875,10 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                       destructive
                     />
                   </>
-                )}
-              </View>
+          )}
+        </View>
             </BottomSheet>
-          </GestureHandlerRootView>
+      </GestureHandlerRootView>
         )}
 
         {isEditing && (
@@ -1178,7 +1926,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                 </View>
               </View>
             </View>
-          </Modal>
+    </Modal>
         )}
       </View>
       {tooltipVisible && <LikesTooltip />}
@@ -1194,25 +1942,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
             </TouchableOpacity>
           </View>
           
-          {comments.map((item, index) => (
-            <View key={item._id} style={styles.simpleUserItem}>
-              {item.author.imageUrl ? (
-                <Image 
-                  source={{ uri: item.author.imageUrl }}
-                  style={styles.simpleUserImage}
-                />
-              ) : (
-                <View style={[styles.simpleUserImage, styles.simpleUserImagePlaceholder]}>
-                  <Ionicons name="person" size={12} color="#fff" />
-                </View>
-              )}
-              <View style={styles.simpleUserContent}>
-                <Text style={styles.simpleUsername}>{item.author.username}</Text>
-                <Text style={styles.simpleCommentText}>{item.content}</Text>
-                <Text style={styles.simpleTimeText}>{formatDate(item.createdAt)}</Text>
-              </View>
-            </View>
-          ))}
+          {comments.map((item) => renderComment(item))}
           
           {comments.length === 0 && (
             <Text style={styles.noCommentsText}>No comments yet</Text>
@@ -1241,626 +1971,4 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
     )}
   </Portal>
 );
-}
-
-const styles = StyleSheet.create({
-  fullScreenContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  fixedHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    height: 44,
-    backgroundColor: '#000',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#262626',
-    marginTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 44,
-  },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  closeButton: {
-    padding: 8,
-    width: 44,
-    alignItems: 'center',
-    height: 44,
-    justifyContent: 'center',
-  },
-  moreButton: {
-    padding: 8,
-    width: 44,
-    alignItems: 'center',
-    height: 44,
-    justifyContent: 'center',
-  },
-  content: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  userInfoSection: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#262626',
-    backgroundColor: '#000',
-  },
-  userInfoContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  userInfoText: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  authorImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  authorImagePlaceholder: {
-    backgroundColor: '#333',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  authorImagePlaceholderText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  authorName: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.1,
-  },
-  location: {
-    color: '#999',
-    fontSize: 12,
-    marginTop: 2,
-    letterSpacing: 0.1,
-  },
-  postImage: {
-    width: '100%',
-    aspectRatio: 1,
-  },
-  postActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  leftActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  actionButton: {
-    marginRight: 20,
-  },
-  postDetails: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  likesCount: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-    marginBottom: 6,
-    letterSpacing: 0.1,
-  },
-  captionContainer: {
-    marginVertical: 6,
-  },
-  captionRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  captionUsername: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-    marginRight: 6,
-    letterSpacing: 0.1,
-  },
-  captionText: {
-    color: '#fff',
-    fontSize: 14,
-    flex: 1,
-    lineHeight: 18,
-    letterSpacing: 0.1,
-  },
-  timestamp: {
-    color: '#666',
-    fontSize: 12,
-    marginTop: 6,
-    letterSpacing: 0.1,
-  },
-  bottomSheetContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 1000,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  bottomSheetBackground: {
-    backgroundColor: '#1a1a1a',
-  },
-  bottomSheetIndicator: {
-    backgroundColor: '#666',
-    width: 40,
-    height: 50,
-    borderRadius: 3,
-  },
-  bottomSheetContent: {
-    padding: 16,
-    paddingTop: 8,
-  },
-  actionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#333',
-  },
-  actionLabel: {
-    color: '#fff',
-    fontSize: 16,
-    marginLeft: 16,
-    flex: 1,
-  },
-  destructiveText: {
-    color: '#ff3b30',
-  },
-  editModalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  editModalContent: {
-    backgroundColor: '#1a1a1a',
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
-    paddingBottom: 40,
-    minHeight: 300,
-  },
-  editModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#333',
-  },
-  editModalTitle: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  editModalCancel: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  editModalSave: {
-    color: '#0095f6',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  editForm: {
-    padding: 16,
-  },
-  editField: {
-    marginBottom: 20,
-  },
-  editLabel: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  editInput: {
-    color: '#fff',
-    fontSize: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#333',
-    borderRadius: 8,
-    padding: 12,
-    minHeight: 40,
-  },
-  likesHeader: {
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#333',
-    backgroundColor: '#1a1a1a',
-  },
-  likesTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  likesList: {
-    paddingBottom: 20,
-  },
-  bottomSheetHeader: {
-    backgroundColor: '#1a1a1a',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  bottomSheetHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#666',
-    borderRadius: 3,
-  },
-  bottomSheetCloseButton: {
-    position: 'absolute',
-    right: 16,
-    top: 8,
-    padding: 4,
-  },
-  simpleOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  simpleTooltip: {
-    width: '80%',
-    backgroundColor: '#262626',
-    borderRadius: 12,
-    maxHeight: '90%',
-    alignSelf: 'center',
-  },
-  simpleTooltipHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#262626',
-    backgroundColor: '#1a1a1a',
-  },
-  simpleTooltipTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  simpleUserItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#333',
-  },
-  simpleUserImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 12,
-  },
-  simpleUserImagePlaceholder: {
-    backgroundColor: '#333',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  simpleUsername: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  simpleMoreText: {
-    color: '#999',
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  commentsContainer: {
-    padding: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#333',
-  },
-  commentsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#333',
-    position: 'relative',
-  },
-  commentsTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  commentsBottomSheet: {
-    flex: 1,
-    backgroundColor: '#1a1a1a',
-  },
-  flashListContainer: {
-    flex: 1,
-    backgroundColor: '#1a1a1a',
-  },
-  commentsList: {
-    paddingHorizontal: 16,
-  },
-  commentItemContainer: {
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#333',
-    height: 500,
-  },
-  commentUserInfo: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  commentUserImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 12,
-  },
-  commentUserImagePlaceholder: {
-    backgroundColor: '#333',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  commentTextContainer: {
-    flex: 1,
-  },
-  commentUsername: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-    marginBottom: 2,
-    letterSpacing: 0.1,
-  },
-  commentContent: {
-    color: '#fff',
-    fontSize: 14,
-    lineHeight: 18,
-    letterSpacing: 0.1,
-  },
-  commentTime: {
-    color: '#666',
-    fontSize: 12,
-    marginTop: 4,
-    letterSpacing: 0.1,
-  },
-  noCommentsContainer: {
-    padding: 16,
-    alignItems: 'center',
-  },
-  noCommentsText: {
-    color: 'rgba(255, 255, 255, 0.4)',
-    fontSize: 14,
-    letterSpacing: 0.1,
-    textAlign: 'center',
-  },
-  commentInputWrapper: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#333',
-    backgroundColor: '#000',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-  },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#262626',
-    backgroundColor: '#1a1a1a',
-  },
-  commentInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 14,
-    padding: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: '#262626',
-    marginRight: 12,
-    height: 40,
-    letterSpacing: 0.1,
-  },
-  postCommentText: {
-    color: '#0095f6',
-    fontWeight: '600',
-    fontSize: 14,
-    letterSpacing: 0.1,
-  },
-  commentsModal: {
-    width: '90%',
-    maxHeight: '80%',
-    backgroundColor: '#262626',
-    borderRadius: 12,
-    padding: 16,
-    paddingBottom: 0,
-  },
-  simpleUserContent: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  simpleCommentText: {
-    color: '#fff',
-    fontSize: 14,
-    marginTop: 2,
-  },
-  simpleTimeText: {
-    color: '#666',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  simpleInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#333',
-    paddingTop: 12,
-    marginTop: 8,
-  },
-  simpleTextInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 14,
-    padding: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: '#1a1a1a',
-    marginRight: 12,
-    height: 40,
-  },
-  commentsSection: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#333',
-  },
-  commentItem: {
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  commentUserInfo: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  commentUserImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#0095f6',
-  },
-  commentUserImagePlaceholder: {
-    backgroundColor: '#333',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 0,
-  },
-  commentTextContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 12,
-    padding: 10,
-  },
-  commentUsername: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-    marginBottom: 2,
-    letterSpacing: 0.1,
-  },
-  commentContent: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 14,
-    lineHeight: 18,
-    letterSpacing: 0.1,
-  },
-  commentTime: {
-    color: 'rgba(255, 255, 255, 0.4)',
-    fontSize: 12,
-    marginTop: 4,
-    letterSpacing: 0.1,
-  },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: '#1a1a1a',
-  },
-  commentInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 14,
-    padding: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    marginRight: 12,
-    height: 40,
-    letterSpacing: 0.1,
-  },
-  postCommentText: {
-    color: '#0095f6',
-    fontWeight: '600',
-    fontSize: 14,
-    letterSpacing: 0.1,
-  },
-  tagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 6,
-    gap: 6,
-  },
-  tag: {
-    color: '#0095f6',
-    fontSize: 14,
-    letterSpacing: 0.1,
-  },
-  commentsLink: {
-    color: '#999',
-    fontSize: 14,
-    marginTop: 8,
-    letterSpacing: 0.1,
-  },
-  commentsTooltip: {
-    width: '80%',
-    height: 500,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    overflow: 'hidden',
-    alignSelf: 'center',
-  },
-  tooltipHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: '#1a1a1a',
-  },
-  tooltipTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  commentsScrollView: {
-    flex: 1,
-    padding: 16,
-    maxHeight: 500,
-  },
-  overlayClose: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-}); 
+} 

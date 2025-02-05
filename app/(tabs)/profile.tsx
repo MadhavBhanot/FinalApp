@@ -164,30 +164,37 @@ export default function Profile() {
     try {
       setIsLoading(true);
       
-      const sessionResponse = await auth.initializeBackendSession(user);
-      const mongoUserId = sessionResponse.data.user._id;
+      // First try to get the stored MongoDB user ID
+      let mongoUserId = await auth.getCurrentMongoUserId();
+      
+      // If no stored ID, try to initialize session
+      if (!mongoUserId) {
+        console.log('🔄 No stored MongoDB ID, initializing session...');
+        const sessionResponse = await auth.initializeBackendSession(user);
+        
+        if (!sessionResponse?.success || !sessionResponse?.data?.user?._id) {
+          console.error('❌ Failed to initialize session:', sessionResponse?.error);
+          setPosts([]);
+          return;
+        }
+        
+        mongoUserId = sessionResponse.data.user._id;
+      }
+      
       setUserObjectId(mongoUserId);
       
-      console.log('Fetching posts for user:', mongoUserId);
+      console.log('🔄 Fetching posts for user:', mongoUserId);
       const response = await getUserPosts(mongoUserId);
-      console.log('Posts response:', response);
+      console.log('✅ Posts response:', response);
       
-      if (response && response.posts) {
-        // Log each post's data
-        response.posts.forEach(post => {
-          console.log('Post data:', {
-            id: post._id,
-            image: post.image,
-            author: post.author
-          });
-        });
-        
+      if (response?.posts && Array.isArray(response.posts)) {
         setPosts(response.posts);
       } else {
+        console.log('ℹ️ No posts found');
         setPosts([]);
       }
     } catch (error) {
-      console.error('Error fetching posts:', error);
+      console.error('❌ Error fetching posts:', error);
       setPosts([]);
     } finally {
       setIsLoading(false);
