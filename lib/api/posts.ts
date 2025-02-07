@@ -118,7 +118,9 @@ export const deletePost = async (postId: string) => {
 // Like or unlike a post
 export const toggleLike = async (postId: string) => {
   try {
+    console.log('🔄 Toggling like for post:', postId);
     const response = await api.post(`/posts/like/${postId}`);
+    console.log('✅ Like response:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error toggling like:', error);

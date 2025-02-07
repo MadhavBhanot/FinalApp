@@ -12,15 +12,12 @@ const getBaseUrl = () => {
   if (__DEV__) {
     if (Platform.OS === 'android') {
       // For Android Emulator
-      if (Platform.constants.Version >= 1000000) {
-        return 'http://10.0.2.2:5001/api';
-      }
-      // For physical Android device or Expo Go
-      return 'http://192.168.1.10:5001/api';
+      return 'http://10.0.2.2:5001/api';
     }
-    // For iOS
+    // For iOS simulator or web
     return 'http://localhost:5001/api';
   }
+  // For production
   return process.env.EXPO_PUBLIC_API_URL + '/api';
 };
 
@@ -29,16 +26,18 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
-  }
+  },
+  timeout: 10000 // 10 second timeout
 });
 
-// Simple request interceptor
+// Request interceptor
 api.interceptors.request.use(
   async (config) => {
     try {
       console.log('🔄 Preparing request:', {
         url: config.url,
-        method: config.method
+        method: config.method,
+        baseURL: config.baseURL
       });
       
       // List of public endpoints that don't need auth
@@ -55,7 +54,7 @@ api.interceptors.request.use(
       }
       
       const token = await SecureStore.getItemAsync('auth_token');
-      console.log('🔑 Auth token found:', !!token);
+      console.log('🔑 Auth token found:', token ? 'yes' : 'no');
       
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
@@ -75,68 +74,29 @@ api.interceptors.request.use(
   }
 );
 
-// Simple response interceptor
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    if (error.response?.status === 401) {
-      await SecureStore.deleteItemAsync('auth_token');
-      await SecureStore.deleteItemAsync('mongo_user_id');
-    }
-    return Promise.reject(error);
-  }
-);
-
-// Request logging function
-const logRequest = (config: any) => {
-  console.log('🚀 API Request:', {
-    method: config.method?.toUpperCase(),
-    url: config.url,
-    baseURL: config.baseURL,
-    data: config.data,
-    headers: config.headers,
-  });
-};
-
-// Response logging function
-const logResponse = (response: any) => {
-  console.log('✅ API Response:', {
-    status: response.status,
-    url: response.config.url,
-    data: response.data,
-  });
-};
-
-// Error logging function
-const logError = (error: any) => {
-  console.error('❌ API Error:', {
-    message: error.message,
-    url: error.config?.url,
-    baseURL: error.config?.baseURL,
-    status: error.response?.status,
-    data: error.response?.data,
-  });
-};
-
-// Update response interceptor
+// Response interceptor
 api.interceptors.response.use(
   (response) => {
-    logResponse(response);
+    console.log('✅ API Response:', {
+      status: response.status,
+      url: response.config.url,
+      data: response.data
+    });
     return response;
   },
   async (error) => {
-    logError(error);
-    
-    // Don't throw on 500 for user creation
-    if (error.config?.url?.includes('/clerk/createUser') && error.response?.status === 500) {
-      console.log('⚠️ User creation failed, but continuing...');
-      return { data: { user: null, token: null } };
-    }
+    console.error('❌ API Error:', {
+      message: error.message,
+      url: error.config?.url,
+      status: error.response?.status,
+      data: error.response?.data
+    });
     
     if (error.response?.status === 401) {
+      // Clear stored credentials on authentication failure
       await SecureStore.deleteItemAsync('auth_token');
       await SecureStore.deleteItemAsync('mongo_user_id');
-      console.log('�� User token cleared due to unauthorized access');
+      console.log('🔒 Cleared stored credentials due to auth error');
     }
     
     return Promise.reject(error);

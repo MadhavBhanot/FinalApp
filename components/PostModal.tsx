@@ -1,6 +1,6 @@
 import { View, Text, Modal, Image, TouchableOpacity, StyleSheet, ScrollView, Alert, TextInput, SafeAreaView, StatusBar, Platform, FlatList, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useUser, useAuth } from '@clerk/clerk-expo';
+import { useUser, useAuth, useClerk } from '@clerk/clerk-expo';
 import * as Sharing from 'expo-sharing';
 import BottomSheet, { BottomSheetView, BottomSheetFlatList, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 import { useCallback, useRef, useMemo, useState, useEffect } from 'react';
@@ -64,20 +64,50 @@ interface Post {
   caption?: string;
 }
 
-// Update the fetchMongoUser function to handle the response type
-interface MongoUser {
-  _id: string;
-  username: string;
-  profileImg?: string;
-  clerkId?: string;
-}
-
-const fetchMongoUser = async (authorId: string): Promise<MongoUser | null> => {
+// Update the fetchMongoUser function to properly handle the response
+const fetchMongoUser = async (mongoUserId: string) => {
   try {
-    const response = await api.get(`/users/${authorId}`);
-    return response.data?.Data;
+    if (!mongoUserId || typeof mongoUserId !== 'string') {
+      console.error('❌ Invalid user ID:', mongoUserId);
+      return null;
+    }
+
+    console.log('🔄 Fetching MongoDB user with ID:', mongoUserId);
+    const response = await api.get(`/users/${mongoUserId}`);
+    console.log('✅ MongoDB user response:', response.data);
+    
+    if (response.data?.Data) {
+      const userData = response.data.Data;
+      return {
+        _id: userData._id,
+        username: userData.username,
+        profileImg: userData.profileImg || null,
+        clerkId: userData.clerkId || null
+      };
+    }
+    return null;
   } catch (error) {
-    console.error('Error fetching MongoDB user:', error);
+    console.error('❌ Error fetching MongoDB user:', error);
+    return null;
+  }
+};
+
+// Update the fetchClerkUserData function to use MongoDB user ID
+const fetchClerkUserData = async (mongoUserId: string) => {
+  try {
+    // First get the MongoDB user to get the Clerk ID
+    const mongoUser = await fetchMongoUser(mongoUserId);
+    if (!mongoUser?.clerkId) {
+      console.log('ℹ️ No Clerk ID found for MongoDB user:', mongoUserId);
+      return null;
+    }
+
+    // Now fetch the Clerk user data using the stored Clerk ID
+    console.log('🔄 Fetching Clerk data for user:', mongoUser.clerkId);
+    const response = await api.get(`/users/profile/${mongoUserId}`);
+    return response.data?.user;
+  } catch (error) {
+    console.error('❌ Error fetching Clerk user:', error);
     return null;
   }
 };
@@ -743,16 +773,18 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
   if (!post) return null;
   
   const { user } = useUser();
-  const { getToken } = useAuth();
+  const { getToken } = useClerk();
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['50%', '80%'], []);
   const [isBottomSheetVisible, setIsBottomSheetVisible] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
+  const { user: clerkUser } = useUser();
+  
+  // State for author data
   const [authorData, setAuthorData] = useState<{
     username: string;
     imageUrl: string;
   }>(() => {
-    // Initialize from cache if available
     const cached = userCache.get(post?.author);
     return cached || {
       username: 'Loading...',
@@ -787,102 +819,73 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
     };
   });
 
-  // Separate data fetching functions for better control
-  const fetchClerkUser = async (clerkId: string) => {
-    const response = await api.get(`/clerk/user/${clerkId}`);
-    return response.data?.user;
-  };
-
+  // Update the useEffect for fetching author data
   useEffect(() => {
     const initializeData = async () => {
       if (!visible || !post?.author) return;
 
       try {
-        // Fetch author data
-        const cached = userCache.get(post.author);
-        if (cached) {
-          console.log('📦 Using cached user data');
-          setAuthorData(cached);
-        } else {
-          const mongoUser = await fetchMongoUser(post.author);
-          if (!mongoUser) return;
-
-          const initialData = {
-            username: mongoUser.username || 'Unknown User',
-            imageUrl: mongoUser.profileImg || ''
-          };
-          setAuthorData(initialData);
-          
-          if (mongoUser.clerkId) {
-            try {
-              const clerkUser = await fetchClerkUser(mongoUser.clerkId);
-              if (clerkUser?.imageUrl) {
-                const finalData = {
-                  ...initialData,
-                  imageUrl: clerkUser.imageUrl
-                };
-                setAuthorData(finalData);
-                userCache.set(post.author, finalData);
-        }
-      } catch (error) {
-              console.error('Error fetching Clerk data:', error);
-              userCache.set(post.author, initialData);
-            }
-          } else {
-            userCache.set(post.author, initialData);
-          }
-        }
-
-        // Pre-fetch likes data
-        await fetchLikesData();
+        const authorId = typeof post.author === 'object' ? post.author._id : post.author;
+        console.log('🔄 Initializing data for author:', authorId);
         
-        // Check if current user has liked
-        const hasLiked = await checkIfLiked();
-        setIsLiked(hasLiked);
+        // Check cache first
+        const cached = userCache.get(authorId);
+        if (cached) {
+          console.log('📦 Using cached user data:', cached);
+          setAuthorData(cached);
+          return;
+        }
+
+        // Get MongoDB user data
+        const mongoUser = await fetchMongoUser(authorId);
+        if (!mongoUser) {
+          console.error('❌ No MongoDB user found');
+          setAuthorData({
+            username: 'Unknown User',
+            imageUrl: ''
+          });
+          return;
+        }
+
+        // Initialize with MongoDB data
+        let userData = {
+          username: mongoUser.username,
+          imageUrl: ''
+        };
+
+        // If we have a Clerk ID and it matches current user, use their image
+        if (mongoUser.clerkId && clerkUser && mongoUser.clerkId === clerkUser.id) {
+          userData.imageUrl = clerkUser.imageUrl;
+          console.log('✅ Using current user Clerk image:', clerkUser.imageUrl);
+        }
+
+        console.log('✅ Setting final user data:', userData);
+        setAuthorData(userData);
+        userCache.set(authorId, userData);
+
       } catch (error) {
-        console.error('Error in initialization:', error);
+        console.error('❌ Error in initialization:', error);
+        setAuthorData({
+          username: 'Unknown User',
+          imageUrl: ''
+        });
       }
     };
 
     initializeData();
-  }, [visible, post?.author]);
+  }, [visible, post?.author, clerkUser]);
 
-  // Add prefetch function for future posts
-  const prefetchUserData = useCallback(async (authorId: string) => {
-    if (!authorId || userCache.has(authorId)) return;
-    
-    try {
-      const mongoUser = await fetchMongoUser(authorId);
-      if (!mongoUser) return;
-
-      const initialData = {
-        username: mongoUser.username || 'Unknown User',
-        imageUrl: mongoUser.profileImg || ''
-      };
-
-      if (mongoUser.clerkId) {
-        const clerkUser = await fetchClerkUser(mongoUser.clerkId);
-        if (clerkUser?.imageUrl) {
-          userCache.set(authorId, {
-            ...initialData,
-            imageUrl: clerkUser.imageUrl
-          });
-          return;
-        }
-      }
-      userCache.set(authorId, initialData);
-    } catch (error) {
-      console.error('Error prefetching user data:', error);
-    }
-  }, []);
-
-  // Modify the Image component to use progressive loading
+  // Update the renderAuthorImage function to handle loading state
   const renderAuthorImage = () => {
-    if (!authorData.imageUrl) {
+    console.log('🖼️ Rendering author image with data:', authorData);
+    
+    if (!authorData?.imageUrl) {
       return (
         <View style={[styles.authorImage, styles.authorImagePlaceholder]}>
-          <Ionicons name="person" size={24} color="#fff" />
-      </View>
+          <Text style={styles.authorImagePlaceholderText}>
+            {authorData?.username?.[0]?.toUpperCase() || '?'}
+          </Text>
+        </View>
       );
     }
 
@@ -893,14 +896,13 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
           headers: { 'Cache-Control': 'max-age=86400' }
         }}
         style={styles.authorImage}
-        onError={() => {
-          console.log('Error loading author image');
+        onError={(error) => {
+          console.error('❌ Error loading author image:', error);
           setAuthorData(prev => ({
             ...prev,
-            imageUrl: ''  // Reset to empty to show icon placeholder
+            imageUrl: ''
           }));
         }}
-        progressiveRenderingEnabled={true}
       />
     );
   };
@@ -927,7 +929,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
           postAuthorId: post.author,
           isOwner: ownerCheck
         });
-    } catch (error) {
+      } catch (error) {
         console.error('Error checking ownership:', error);
         setIsOwner(false);
       }
@@ -954,54 +956,54 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
       return;
     }
 
-      Alert.alert(
-        "Delete Post",
-        "Are you sure you want to delete this post? This action cannot be undone.",
-        [
-        { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              try {
-              const mongoUserId = await auth.getMongoUserId();
-              
-              if (!mongoUserId) {
-                Alert.alert('Error', 'You must be logged in to delete posts');
-                return;
-              }
+    Alert.alert(
+      "Delete Post",
+      "Are you sure you want to delete this post? This action cannot be undone.",
+      [
+      { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+            const mongoUserId = await auth.getMongoUserId();
+            
+            if (!mongoUserId) {
+              Alert.alert('Error', 'You must be logged in to delete posts');
+              return;
+            }
 
-              // Compare MongoDB user IDs
-              if (mongoUserId !== post.author) {
-                Alert.alert('Error', 'You can only delete your own posts');
-                return;
-              }
+            // Compare MongoDB user IDs
+            if (mongoUserId !== post.author) {
+              Alert.alert('Error', 'You can only delete your own posts');
+              return;
+            }
 
-              const response = await api.delete(`/posts/${post._id}`, {
-                data: { userId: mongoUserId }
-              });
+            const response = await api.delete(`/posts/${post._id}`, {
+              data: { userId: mongoUserId }
+            });
 
-              if (response.data?.success) {
-                handleCloseBottomSheet();
-                onClose();
-                if (onPostDeleted) {
-                  onPostDeleted();
-                }
-                Alert.alert('Success', 'Post deleted successfully');
-              } else {
-                throw new Error(response.data?.message || 'Failed to delete post');
+            if (response.data?.success) {
+              handleCloseBottomSheet();
+              onClose();
+              if (onPostDeleted) {
+                onPostDeleted();
               }
-            } catch (error: any) {
-                console.error('Error deleting post:', error);
-              Alert.alert(
-                'Error', 
-                error.response?.data?.message || 'Failed to delete post. Please try again.'
-              );
-              }
-            },
+              Alert.alert('Success', 'Post deleted successfully');
+            } else {
+              throw new Error(response.data?.message || 'Failed to delete post');
+            }
+          } catch (error: any) {
+              console.error('Error deleting post:', error);
+            Alert.alert(
+              'Error', 
+              error.response?.data?.message || 'Failed to delete post. Please try again.'
+            );
+            }
           },
-        ]
-      );
+        },
+      ]
+    );
   };
 
   const handleReport = () => {
@@ -1161,7 +1163,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
         // If we have a Clerk ID, fetch that data
         if (mongoUser.clerkId) {
           try {
-            const clerkUser = await fetchClerkUser(mongoUser.clerkId);
+            const clerkUser = await fetchClerkUserData(mongoUser.clerkId);
             if (clerkUser?.imageUrl) {
               userData.imageUrl = clerkUser.imageUrl;
             }
@@ -1289,35 +1291,27 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
   // Add handleLike function
   const handleLike = async () => {
     try {
-      const mongoUserId = await auth.getMongoUserId();
-      if (!mongoUserId) {
-        Alert.alert('Error', 'You must be logged in to like posts');
-        return;
-      }
-
-      // Optimistically update UI
-      const newIsLiked = !isLiked;
-      setIsLiked(newIsLiked);
-      setLikesCount(prev => newIsLiked ? prev + 1 : prev - 1);
-
-      // Make API call
+      // Make API call first
       const response = await api.post(`/posts/like/${post._id}`);
+      console.log('Like response:', response.data);
 
       if (response.data?.success) {
+        // Update UI after successful API call
+        const newIsLiked = !isLiked;
+        setIsLiked(newIsLiked);
+        setLikesCount(prev => newIsLiked ? prev + 1 : prev - 1);
+
         // Update post's likes array
-        if (newIsLiked) {
-          post.likes = [...post.likes, mongoUserId];
-      } else {
-          post.likes = post.likes.filter(id => id !== mongoUserId);
+        if (response.data.liked) {
+          post.likes = [...(post.likes || []), response.data.userId];
+        } else {
+          post.likes = (post.likes || []).filter(id => id !== response.data.userId);
         }
         
         if (onLike) {
           onLike();
         }
       } else {
-        // Revert changes if API call fails
-        setIsLiked(!newIsLiked);
-        setLikesCount(prev => newIsLiked ? prev - 1 : prev + 1);
         throw new Error(response.data?.message || 'Failed to update like status');
       }
     } catch (error) {
@@ -1634,7 +1628,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
           >
             <Ionicons name="ellipsis-horizontal" size={24} color="#fff" />
           </TouchableOpacity>
-              </View>
+        </View>
 
         <ScrollView 
           style={styles.content}
@@ -1647,41 +1641,41 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
               {renderAuthorImage()}
               <View style={styles.userInfoText}>
                 <Text style={styles.authorName}>{authorData.username}</Text>
-                    {post.location && (
-                      <Text style={styles.location}>
-                        <Ionicons name="location" size={12} color="#999" /> {post.location}
-                      </Text>
-                    )}
-                  </View>
+                {post.location && (
+                  <Text style={styles.location}>
+                    <Ionicons name="location" size={12} color="#999" /> {post.location}
+                  </Text>
+                )}
+              </View>
             </View>
-                </View>
+          </View>
 
-                  <Image 
+          <Image 
             source={{ uri: formatImageUri(post.image) }}
             style={styles.postImage}
             resizeMode="cover"
-                  />
+          />
 
           <View style={styles.postActions}>
-                  <View style={styles.leftActions}>
+            <View style={styles.leftActions}>
               <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
-                      <Ionicons 
+                <Ionicons 
                   name={isLiked ? "heart" : "heart-outline"} 
                   size={24} 
                   color={isLiked ? "#ff2d55" : "#fff"} 
-                      />
-                    </TouchableOpacity>
+                />
+              </TouchableOpacity>
               <TouchableOpacity onPress={handleCommentsPress} style={styles.actionButton}>
-                      <Ionicons name="chatbubble-outline" size={24} color="#fff" />
-                    </TouchableOpacity>
+                <Ionicons name="chatbubble-outline" size={24} color="#fff" />
+              </TouchableOpacity>
               <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
-                      <Ionicons name="paper-plane-outline" size={24} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity>
-                    <Ionicons name="bookmark-outline" size={24} color="#fff" />
-                  </TouchableOpacity>
-                </View>
+                <Ionicons name="paper-plane-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity>
+              <Ionicons name="bookmark-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.postDetails}>
             {post.likes && post.likes.length > 0 && (
@@ -1691,18 +1685,18 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
             )}
 
             {/* Username and Caption */}
-                  <View style={styles.captionContainer}>
+            <View style={styles.captionContainer}>
               <View style={styles.captionRow}>
                 <Text style={styles.captionUsername}>{authorData.username}</Text>
                 <Text style={styles.captionText} numberOfLines={3}>
                   {postData.content || post.caption || 'No caption'} {/* Try both content and caption fields */}
                 </Text>
               </View>
-                  </View>
+            </View>
 
             {/* Tags */}
             {post.tags && post.tags.length > 0 && (
-                    <View style={styles.tagsContainer}>
+              <View style={styles.tagsContainer}>
                 {post.tags.map((tag, index) => {
                   // Clean the tag: remove any special characters and spaces
                   const cleanTag = tag.replace(/[^a-zA-Z0-9]/g, '');
@@ -1710,17 +1704,17 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                     <Text key={index} style={styles.tag}>#{cleanTag}</Text>
                   );
                 })}
-                    </View>
-                  )}
+              </View>
+            )}
 
             <TouchableOpacity onPress={handleCommentsPress}>
               <Text style={styles.commentsLink}>
                 {comments.length > 0 ? `View all ${comments.length} comments` : 'Add a comment'}
-                  </Text>
+              </Text>
             </TouchableOpacity>
 
             <Text style={styles.timestamp}>{formatDate(post.createdAt)}</Text>
-                </View>
+          </View>
 
           {/* Comments Modal */}
           {isCommentsModalVisible && (
@@ -1753,7 +1747,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                       <Text style={styles.noCommentsText}>No comments yet</Text>
                     </View>
                   )}
-              </ScrollView>
+                </ScrollView>
 
                 <View style={styles.commentInputContainer}>
                   <TextInput
@@ -1790,7 +1784,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
           )}
         </ScrollView>
 
-          {isBottomSheetVisible && (
+        {isBottomSheetVisible && (
           <GestureHandlerRootView style={styles.bottomSheetContainer}>
             <BottomSheet
               ref={bottomSheetRef}
@@ -1875,10 +1869,10 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                       destructive
                     />
                   </>
-          )}
-        </View>
+                )}
+              </View>
             </BottomSheet>
-      </GestureHandlerRootView>
+          </GestureHandlerRootView>
         )}
 
         {isEditing && (
@@ -1926,7 +1920,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                 </View>
               </View>
             </View>
-    </Modal>
+          </Modal>
         )}
       </View>
       {tooltipVisible && <LikesTooltip />}
