@@ -1,3 +1,4 @@
+import React from 'react';
 import { View, Text, Modal, Image, TouchableOpacity, StyleSheet, ScrollView, Alert, TextInput, SafeAreaView, StatusBar, Platform, FlatList, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUser, useAuth, useClerk } from '@clerk/clerk-expo';
@@ -53,7 +54,7 @@ const ActionItem = ({ icon, label, onPress, destructive = false }: ActionItemPro
 // Update the Post interface at the top of the file
 interface Post {
   _id: string;
-  author: string; // MongoDB user ID as string
+  author: string | { _id: string; username: string; imageUrl: string }; // MongoDB user ID as string or author object
   content: string;
   image: string;
   location?: string;
@@ -64,9 +65,11 @@ interface Post {
   caption?: string;
 }
 
-// Update the fetchMongoUser function to properly handle the response
-const fetchMongoUser = async (mongoUserId: string) => {
+// Update the fetchMongoUser function to handle both string and object author types
+const fetchMongoUser = async (authorId: string | { _id: string; username: string; imageUrl: string }) => {
   try {
+    const mongoUserId = typeof authorId === 'object' ? authorId._id : authorId;
+    
     if (!mongoUserId || typeof mongoUserId !== 'string') {
       console.error('❌ Invalid user ID:', mongoUserId);
       return null;
@@ -773,7 +776,6 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
   if (!post) return null;
   
   const { user } = useUser();
-  const { getToken } = useClerk();
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['50%', '80%'], []);
   const [isBottomSheetVisible, setIsBottomSheetVisible] = useState(false);
@@ -785,37 +787,10 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
     username: string;
     imageUrl: string;
   }>(() => {
-    const cached = userCache.get(post?.author);
+    const cached = userCache.get(typeof post.author === 'object' ? post.author._id : post.author);
     return cached || {
       username: 'Loading...',
       imageUrl: ''
-    };
-  });
-
-  // Add animated values for drag gesture
-  const translateY = useSharedValue(0);
-  const context = useSharedValue<GestureContext>({ y: 0 });
-
-  const gesture = useAnimatedGestureHandler({
-    onStart: (_, ctx: GestureContext) => {
-      ctx.y = translateY.value;
-    },
-    onActive: (event, ctx: GestureContext) => {
-      translateY.value = ctx.y + event.translationY;
-    },
-    onEnd: (event) => {
-      if (event.velocityY > 500 || translateY.value > 200) {
-        translateY.value = withSpring(1000, { velocity: event.velocityY });
-        runOnJS(onClose)();
-      } else {
-        translateY.value = withSpring(0);
-      }
-    },
-  });
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: translateY.value }],
     };
   });
 
@@ -913,22 +888,25 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
       if (!visible || !user || !post?.author) return;
 
       try {
-        const mongoUserId = await auth.getMongoUserId();
+        const mongoUserId = await auth.getCurrentMongoUserId();
         if (!mongoUserId) {
           console.log('No MongoDB user ID found');
           setIsOwner(false);
           return;
         }
 
+        // Get the author ID, handling both string and object types
+        const authorId = typeof post.author === 'object' ? post.author._id : post.author;
+        
         // Compare MongoDB user IDs
-        const ownerCheck = mongoUserId === post.author;
-        setIsOwner(ownerCheck);
-
+        const ownerCheck = mongoUserId === authorId;
         console.log('Ownership check:', {
           currentUserId: mongoUserId,
-          postAuthorId: post.author,
+          postAuthorId: authorId,
           isOwner: ownerCheck
         });
+        
+        setIsOwner(ownerCheck);
       } catch (error) {
         console.error('Error checking ownership:', error);
         setIsOwner(false);
@@ -960,45 +938,39 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
       "Delete Post",
       "Are you sure you want to delete this post? This action cannot be undone.",
       [
-      { text: "Cancel", style: "cancel" },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
             try {
-            const mongoUserId = await auth.getMongoUserId();
-            
-            if (!mongoUserId) {
-              Alert.alert('Error', 'You must be logged in to delete posts');
-              return;
-            }
-
-            // Compare MongoDB user IDs
-            if (mongoUserId !== post.author) {
-              Alert.alert('Error', 'You can only delete your own posts');
-              return;
-            }
-
-            const response = await api.delete(`/posts/${post._id}`, {
-              data: { userId: mongoUserId }
-            });
-
-            if (response.data?.success) {
-              handleCloseBottomSheet();
-              onClose();
-              if (onPostDeleted) {
-                onPostDeleted();
+              const mongoUserId = await auth.getCurrentMongoUserId();
+              
+              if (!mongoUserId) {
+                Alert.alert('Error', 'You must be logged in to delete posts');
+                return;
               }
-              Alert.alert('Success', 'Post deleted successfully');
-            } else {
-              throw new Error(response.data?.message || 'Failed to delete post');
-            }
-          } catch (error: any) {
+
+              const response = await api.delete(`/posts/${post._id}`, {
+                data: { userId: mongoUserId }
+              });
+
+              if (response.data?.success) {
+                handleCloseBottomSheet();
+                onClose();
+                if (onPostDeleted) {
+                  onPostDeleted();
+                }
+                Alert.alert('Success', 'Post deleted successfully');
+              } else {
+                throw new Error(response.data?.message || 'Failed to delete post');
+              }
+            } catch (error: any) {
               console.error('Error deleting post:', error);
-            Alert.alert(
-              'Error', 
-              error.response?.data?.message || 'Failed to delete post. Please try again.'
-            );
+              Alert.alert(
+                'Error', 
+                error.response?.data?.message || 'Failed to delete post. Please try again.'
+              );
             }
           },
         },
@@ -1024,19 +996,22 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
 
   const handleSaveEdit = async () => {
     try {
-      const response = await api.patch(`/posts/${post._id}`, {
+      const response = await updatePost(post._id, {
         content: editData.content,
-        location: editData.location
+        location: editData.location || ''
       });
 
-      if (response.data?.success) {
+      if (response.success) {
         setIsEditing(false);
         // Update local state
-        post.content = editData.content;
-        post.location = editData.location;
+        setPost(prev => ({
+          ...prev,
+          content: editData.content,
+          location: editData.location || ''
+        }));
         Alert.alert('Success', 'Post updated successfully');
       } else {
-        throw new Error(response.data?.message || 'Failed to update post');
+        throw new Error(response.message || 'Failed to update post');
       }
     } catch (error: any) {
       console.error('Error updating post:', error);
@@ -1904,6 +1879,7 @@ export default function PostModal({ post, visible, onClose, onLike, onComment, o
                       multiline
                       placeholder="Write a caption..."
                       placeholderTextColor="#666"
+                      autoFocus={true}
                     />
                   </View>
 

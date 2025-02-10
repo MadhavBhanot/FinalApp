@@ -96,7 +96,7 @@ export const getPostById = async (postId: string) => {
 // Update a post
 export const updatePost = async (postId: string, postData: { content?: string; location?: string }) => {
   try {
-    const response = await api.patch(`/posts/${postId}`, postData);
+    const response = await api.patch(`/posts/update/${postId}`, postData);
     return response.data;
   } catch (error) {
     console.error('Error updating post:', error);

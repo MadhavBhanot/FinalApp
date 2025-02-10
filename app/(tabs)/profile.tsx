@@ -41,6 +41,27 @@ interface PostModalPost {
   isLiked: boolean;
 }
 
+interface UserProfile {
+  _id: string;
+  username: string;
+  profileImg?: string;
+}
+
+const TEST_FOLLOWERS: UserProfile[] = [
+  { _id: '1', username: 'john_doe', profileImg: 'https://randomuser.me/api/portraits/men/1.jpg' },
+  { _id: '2', username: 'jane_smith', profileImg: 'https://randomuser.me/api/portraits/women/2.jpg' },
+  { _id: '3', username: 'mike_wilson', profileImg: 'https://randomuser.me/api/portraits/men/3.jpg' },
+  { _id: '4', username: 'sarah_parker', profileImg: 'https://randomuser.me/api/portraits/women/4.jpg' },
+  { _id: '5', username: 'alex_turner', profileImg: 'https://randomuser.me/api/portraits/men/5.jpg' },
+];
+
+const TEST_FOLLOWING: UserProfile[] = [
+  { _id: '6', username: 'emma_watson', profileImg: 'https://randomuser.me/api/portraits/women/6.jpg' },
+  { _id: '7', username: 'tom_hardy', profileImg: 'https://randomuser.me/api/portraits/men/7.jpg' },
+  { _id: '8', username: 'lisa_kudrow', profileImg: 'https://randomuser.me/api/portraits/women/8.jpg' },
+  { _id: '9', username: 'chris_evans', profileImg: 'https://randomuser.me/api/portraits/men/9.jpg' },
+];
+
 const formatImageUri = (uri: string) => {
   if (!uri) return '';
   
@@ -142,6 +163,10 @@ export default function Profile() {
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userObjectId, setUserObjectId] = useState<string | null>(null);
+  const [followers, setFollowers] = useState<UserProfile[]>([]);
+  const [following, setFollowing] = useState<UserProfile[]>([]);
+  const [isFollowModalVisible, setIsFollowModalVisible] = useState(false);
+  const [followModalType, setFollowModalType] = useState<'followers' | 'following'>('followers');
   const router = useRouter();
   const pathname = usePathname();
 
@@ -268,14 +293,14 @@ export default function Profile() {
             { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
           );
 
-          await user?.setProfileImage({
-            file: {
-              name: 'profile-image.jpg',
-              uri: manipulatedImage.uri,
-              type: 'image/jpeg',
-            }
-          });
+          const formData = new FormData();
+          formData.append('file', {
+            name: 'profile-image.jpg',
+            type: 'image/jpeg',
+            uri: manipulatedImage.uri
+          } as any);
 
+          await user?.setProfileImage({ file: formData });
           Alert.alert('Success', 'Profile photo updated successfully');
         } catch (error: any) {
           console.error('Image upload error:', error);
@@ -459,6 +484,129 @@ export default function Profile() {
     );
   };
 
+  const fetchFollowData = async () => {
+    const currentUserId = userObjectId;
+    if (!currentUserId) {
+      console.log('No user ID available');
+      return;
+    }
+    
+    try {
+      // Fetch followers
+      const followersResponse = await fetch(`http://10.0.2.2:5001/api/users/followers/${currentUserId}`);
+      const followersData = await followersResponse.json();
+      if (followersData.Status === 1) {
+        setFollowers(followersData.Followers);
+      }
+
+      // Fetch following
+      const followingResponse = await fetch(`http://10.0.2.2:5001/api/users/following/${currentUserId}`);
+      const followingData = await followingResponse.json();
+      if (followingData.Status === 1) {
+        setFollowing(followingData.Following);
+      }
+    } catch (error) {
+      console.error('Error fetching follow data:', error);
+    }
+  };
+
+  const handleFollowPress = async (userId: string) => {
+    if (!userObjectId) return;
+    
+    try {
+      const response = await fetch(`http://10.0.2.2:5001/api/users/follow/${userId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+      if (data.Status === 1) {
+        // Refresh follow data after successful follow/unfollow
+        fetchFollowData();
+      }
+    } catch (error) {
+      console.error('Error following/unfollowing user:', error);
+      Alert.alert('Error', 'Failed to update follow status');
+    }
+  };
+
+  const isFollowingUser = (userId: string) => {
+    return following.some(user => user._id === userId);
+  };
+
+  const FollowModal = ({ visible, onClose, title, users, onFollowPress, isFollowing }: {
+    visible: boolean;
+    onClose: () => void;
+    title: string;
+    users: UserProfile[];
+    onFollowPress: (userId: string) => void;
+    isFollowing: (userId: string) => boolean;
+  }) => (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.followModalContent}>
+          <View style={styles.followModalHeader}>
+            <Text style={styles.followModalTitle}>{title}</Text>
+            <TouchableOpacity onPress={onClose} style={styles.followModalCloseButton}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={users}
+            keyExtractor={item => item._id}
+            renderItem={({ item }) => (
+              <View style={styles.userListItem}>
+                <View style={styles.userListInfo}>
+                  {item.profileImg ? (
+                    <Image
+                      source={{ uri: item.profileImg }}
+                      style={styles.userListAvatar}
+                    />
+                  ) : (
+                    <View style={[styles.userListAvatar, styles.userListAvatarPlaceholder]}>
+                      <Text style={styles.userListAvatarText}>
+                        {item.username[0].toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={styles.userListUsername}>{item.username}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.userListFollowButton,
+                    isFollowing(item._id) && styles.userListFollowingButton
+                  ]}
+                  onPress={() => onFollowPress(item._id)}
+                >
+                  <Text style={[
+                    styles.userListFollowButtonText,
+                    isFollowing(item._id) && styles.userListFollowingButtonText
+                  ]}>
+                    {isFollowing(item._id) ? 'Following' : 'Follow'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            style={styles.userList}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // Update the useEffect to set test data
+  useEffect(() => {
+    setFollowers(TEST_FOLLOWERS);
+    setFollowing(TEST_FOLLOWING);
+  }, []);
+
   if (!isLoaded) {
     return (
       <View style={styles.container}>
@@ -555,15 +703,27 @@ export default function Profile() {
             <Text style={styles.statLabel}>Posts</Text>
           </View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>1.2K</Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>4.5K</Text>
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => {
+              setFollowModalType('followers');
+              setIsFollowModalVisible(true);
+            }}
+          >
+            <Text style={styles.statNumber}>{followers.length}</Text>
             <Text style={styles.statLabel}>Followers</Text>
-          </View>
+          </TouchableOpacity>
+          <View style={styles.statDivider} />
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => {
+              setFollowModalType('following');
+              setIsFollowModalVisible(true);
+            }}
+          >
+            <Text style={styles.statNumber}>{following.length}</Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Activity Section */}
@@ -736,6 +896,15 @@ export default function Profile() {
           </View>
         </View>
       </Modal>
+
+      <FollowModal
+        visible={isFollowModalVisible}
+        onClose={() => setIsFollowModalVisible(false)}
+        title={followModalType === 'followers' ? 'Followers' : 'Following'}
+        users={followModalType === 'followers' ? followers : following}
+        onFollowPress={handleFollowPress}
+        isFollowing={isFollowingUser}
+      />
 
       {renderPostModal()}
     </View>
@@ -940,42 +1109,23 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalContent: {
-    backgroundColor: '#1E1E1E',
-    borderRadius: 20,
-    overflow: 'hidden',
+    width: '90%',
     maxHeight: '80%',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    overflow: 'hidden',
+    padding: 16,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 16,
   },
-  modalHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  modalUserAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: '#6C63FF',
-  },
-  modalUsername: {
+  modalTitle: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalLocation: {
-    color: '#999',
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   closeButton: {
     width: 36,
@@ -1105,25 +1255,31 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#1E1E1E',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
+    width: '90%',
     maxHeight: '80%',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    overflow: 'hidden',
+    padding: 16,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   modalTitle: {
     color: '#fff',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   closeButton: {
-    padding: 5,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   interestsList: {
     paddingBottom: 20,
@@ -1331,5 +1487,133 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  userItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  userImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  userImagePlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#2A2A2A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userImagePlaceholderText: {
+    fontSize: 20,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  followButton: {
+    backgroundColor: '#6C63FF',
+    padding: 8,
+    borderRadius: 8,
+  },
+  followingButton: {
+    backgroundColor: '#444',
+  },
+  followButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  followModalContent: {
+    width: '100%',
+    height: '70%',
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+    padding: 0,
+  },
+  followModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    position: 'relative',
+  },
+  followModalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  followModalCloseButton: {
+    position: 'absolute',
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userList: {
+    flex: 1,
+  },
+  userListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  userListInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  userListAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+  },
+  userListAvatarPlaceholder: {
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userListAvatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  userListUsername: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  userListFollowButton: {
+    backgroundColor: '#6C63FF',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  userListFollowingButton: {
+    backgroundColor: '#333',
+  },
+  userListFollowButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  userListFollowingButtonText: {
+    color: '#fff',
   },
 }); 
